@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 210" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <linearGradient id="cart" x1="54" y1="68" x2="306" y2="188" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff6f86"/>
+      <stop offset="1" stop-color="#ff9f48"/>
+    </linearGradient>
+    <linearGradient id="shade" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#ffffff" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity=".1"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="180" cy="190" rx="145" ry="18" fill="#37405b" opacity=".16"/>
+  <rect x="52" y="70" width="256" height="111" rx="26" fill="url(#cart)"/>
+  <path d="M43 72h274l-18-42H62L43 72Z" fill="#fff6dc"/>
+  <path d="M66 30h46l-9 42H47l19-42Zm50 0h46l-3 42h-56l13-42Zm50 0h46l4 42h-57l7-42Zm50 0h46l14 42h-60V30Zm50 0h28l24 42h-42l-10-42Z" fill="#ff566e"/>
+  <path d="M112 30h50l-3 42h-56l9-42Zm100 0h50l14 42h-60l-4-42Z" fill="#44bdd1"/>
+  <rect x="78" y="92" width="204" height="54" rx="18" fill="#fff6df" opacity=".92"/>
+  <rect x="96" y="106" width="168" height="22" rx="11" fill="#ffd46a"/>
+  <path d="M78 92c42 17 151 17 204 0v12c-44 22-158 22-204 0V92Z" fill="url(#shade)"/>
+  <circle cx="104" cy="178" r="19" fill="#354052"/>
+  <circle cx="104" cy="178" r="9" fill="#f5f7ff"/>
+  <circle cx="256" cy="178" r="19" fill="#354052"/>
+  <circle cx="256" cy="178" r="9" fill="#f5f7ff"/>
+  <path d="M301 111h28a13 13 0 0 1 0 26h-28" fill="none" stroke="#354052" stroke-width="9" stroke-linecap="round"/>
+</svg>
