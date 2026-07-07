@@ -10,6 +10,28 @@
   </head>
   <body>
     <main class="phone-game" aria-label="붕어빵 거리 게임">
+      <section id="introScreen" class="intro-screen" role="dialog" aria-modal="true" aria-labelledby="introTitle">
+        <img class="intro-bg" src="assets/new/world.png" alt="" />
+        <div class="intro-shade" aria-hidden="true"></div>
+        <div class="intro-panel">
+          <div class="intro-brand">
+            <img src="assets/shop-mark.svg" width="74" height="74" alt="" />
+            <div>
+              <span class="intro-kicker">SNOW MARKET</span>
+              <h2 id="introTitle">붕어빵 거리</h2>
+            </div>
+          </div>
+          <div class="intro-bbang" aria-hidden="true"></div>
+          <div class="intro-stats" aria-label="저장 정보">
+            <span id="introDayText">DAY 1</span>
+            <span id="introBestText">최고 0원</span>
+          </div>
+          <button id="startGameButton" class="start-button" type="button">
+            <span>게임 시작</span>
+          </button>
+        </div>
+      </section>
+
       <section class="playfield" aria-label="영업 화면">
         <img class="town-bg" src="assets/new/world.png" alt="" />
         <div class="snow-layer snow-a" aria-hidden="true"></div>
@@ -33,22 +55,34 @@
         <section class="resource-board" aria-label="재화와 목표">
           <div class="resource-pill coin-pill">
             <span class="coin-icon" aria-hidden="true">₩</span>
-            <strong id="coinsText">0</strong>
+            <span class="resource-copy">
+              <small>매출</small>
+              <strong id="coinsText">0원</strong>
+            </span>
           </div>
           <div class="resource-pill gem-pill">
             <span class="gem-icon" aria-hidden="true"></span>
-            <strong id="gemsText">0</strong>
+            <span class="resource-copy">
+              <small>보석</small>
+              <strong id="gemsText">0</strong>
+            </span>
           </div>
           <div class="resource-pill rep-pill">
             <span class="rep-icon" aria-hidden="true">♥</span>
-            <strong id="reputationText">80</strong>
+            <span class="resource-copy">
+              <small>평판</small>
+              <strong id="reputationText">80</strong>
+            </span>
           </div>
           <div class="resource-pill time-pill">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="12" r="8" />
               <path d="M12 7v5l3 2" />
             </svg>
-            <strong id="timerText">01:45</strong>
+            <span class="resource-copy">
+              <small>시간</small>
+              <strong id="timerText">01:00</strong>
+            </span>
           </div>
           <div class="goal-track">
             <div class="goal-copy">

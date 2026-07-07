@@ -1,8 +1,8 @@
 (() => {
   "use strict";
 
-  const SAVE_KEY = "bungeoppang-snow-market-v3";
-  const DAY_SECONDS = 105;
+  const SAVE_KEY = "bungeoppang-snow-market-v4";
+  const DAY_SECONDS = 60;
   const SLOT_COUNT = 12;
   const MAX_ORDERS = 3;
   const BATTER_COST = 6;
@@ -111,8 +111,8 @@
 
   const customerNames = ["민지", "도윤", "하린", "지후", "서아", "유준", "나윤", "이준", "라온"];
   const defaultSave = {
-    coins: 520,
-    gems: 12,
+    coins: 0,
+    gems: 0,
     reputation: 80,
     day: 1,
     bestRevenue: 0,
@@ -128,6 +128,10 @@
   };
 
   const els = {
+    introScreen: document.querySelector("#introScreen"),
+    startGameButton: document.querySelector("#startGameButton"),
+    introDayText: document.querySelector("#introDayText"),
+    introBestText: document.querySelector("#introBestText"),
     dayText: document.querySelector("#dayText"),
     coinsText: document.querySelector("#coinsText"),
     gemsText: document.querySelector("#gemsText"),
@@ -160,7 +164,7 @@
 
   const state = {
     save: loadSave(),
-    running: true,
+    running: false,
     paused: false,
     timeLeft: DAY_SECONDS,
     revenue: 0,
@@ -277,7 +281,7 @@
   }
 
   function getGoal() {
-    return 720 + (state.save.day - 1) * 145;
+    return 430 + (state.save.day - 1) * 95;
   }
 
   function money(value) {
@@ -309,13 +313,8 @@
   }
 
   function spendMaterial(slot, amount) {
-    if (state.save.coins < amount) {
-      return false;
-    }
-    state.save.coins -= amount;
     state.stats.cost += amount;
     slot.cost += amount;
-    saveGame();
     return true;
   }
 
@@ -398,10 +397,7 @@
   }
 
   function pourBatter(slot) {
-    if (!spendMaterial(slot, BATTER_COST)) {
-      showToast("반죽 재료비가 부족합니다");
-      return;
-    }
+    spendMaterial(slot, BATTER_COST);
     slot.stage = "batter";
     slot.recipeId = null;
     slot.progress = 0;
@@ -423,10 +419,7 @@
     }
 
     const recipe = getRecipe(state.selectedRecipeId);
-    if (!spendMaterial(slot, recipe.cost)) {
-      showToast(`${recipe.name} 속재료비가 부족합니다`);
-      return;
-    }
+    spendMaterial(slot, recipe.cost);
     slot.stage = "front";
     slot.recipeId = state.selectedRecipeId;
     slot.progress = 0;
@@ -600,6 +593,7 @@
     const recipe = getRecipe(slot.recipeId);
     const order = findMatchingOrder(recipe.id);
     const perfect = slot.perfectFront && slot.readyAge <= READY_PERFECT_SECONDS;
+    const materialCost = slot.cost;
     let value = recipe.price * getServeBonus();
     let message = "진열 판매";
     let patienceRatio = 0;
@@ -641,7 +635,7 @@
     }
 
     value = Math.round(value);
-    state.save.coins += value;
+    state.save.coins += Math.max(0, value - materialCost);
     state.revenue += value;
     state.stats.pieces += 1;
     state.maxCombo = Math.max(state.maxCombo, state.combo);
@@ -815,10 +809,21 @@
     state.stats = createStats();
     state.missions = buildMissions();
     state.lastTick = performance.now();
+    els.introScreen.classList.add("hidden");
     els.daySummary.classList.add("hidden");
     closeSheet("shopSheet");
     closeSheet("missionsSheet");
     renderAll();
+  }
+
+  function renderIntro() {
+    els.introDayText.textContent = `DAY ${state.save.day}`;
+    els.introBestText.textContent = `최고 ${money(state.save.bestRevenue)}`;
+  }
+
+  function startGame() {
+    renderIntro();
+    startNewDay();
   }
 
   function endDay(reason = "time") {
@@ -896,7 +901,7 @@
     const goal = getGoal();
     const progress = Math.min(100, (state.revenue / goal) * 100);
     els.dayText.textContent = `DAY ${state.save.day}`;
-    els.coinsText.textContent = compactMoney(state.save.coins);
+    els.coinsText.textContent = money(state.revenue);
     els.gemsText.textContent = compactMoney(state.save.gems);
     els.reputationText.textContent = Math.round(getReputation());
     els.timerText.textContent = formatTime(state.timeLeft);
@@ -1125,7 +1130,7 @@
     }
     if (slot.stage === "front") {
       if (slot.progress < FRONT_FLIP_PROGRESS) {
-        return "덜익음";
+        return "굽는중";
       }
       return slot.progress <= FRONT_GOLDEN_MAX ? "뒤집기" : "타기직전";
     }
@@ -1262,6 +1267,7 @@
   }
 
   function bindEvents() {
+    els.startGameButton.addEventListener("click", startGame);
     els.shopButton.addEventListener("click", () => openSheet("shopSheet"));
     els.missionsButton.addEventListener("click", () => openSheet("missionsSheet"));
     els.newDayButton.addEventListener("click", startNewDay);
@@ -1273,6 +1279,10 @@
   }
 
   bindEvents();
-  startNewDay();
+  renderIntro();
+  renderHud();
+  renderRecipes();
+  renderGrill(false);
+  renderShop();
   requestAnimationFrame(tick);
 })();
