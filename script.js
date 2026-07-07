@@ -5,15 +5,66 @@
   const DAY_SECONDS = 105;
   const SLOT_COUNT = 12;
   const MAX_ORDERS = 3;
+  const BATTER_COST = 6;
+  const BATTER_SET_PROGRESS = 14;
+  const BATTER_BURN_PROGRESS = 76;
+  const FRONT_FLIP_PROGRESS = 72;
+  const FRONT_GOLDEN_MIN = 88;
+  const FRONT_GOLDEN_MAX = 104;
+  const FRONT_BURN_PROGRESS = 122;
+  const READY_PERFECT_SECONDS = 3.2;
   const won = new Intl.NumberFormat("ko-KR");
 
   const recipes = [
-    { id: "redbean", name: "팥", short: "팥", color: "#8b3f39", price: 65, unlockCost: 0 },
-    { id: "custard", name: "슈크림", short: "슈", color: "#e0a33a", price: 72, unlockCost: 0 },
-    { id: "cheese", name: "치즈", short: "치", color: "#f1bd35", price: 82, unlockCost: 240 },
-    { id: "sweetpotato", name: "고구마", short: "고", color: "#a864d6", price: 92, unlockCost: 330 },
-    { id: "matcha", name: "말차", short: "말", color: "#4b9c63", price: 104, unlockCost: 430 }
+    { id: "redbean", name: "팥", short: "팥", color: "#8b3f39", price: 65, cost: 14, unlockCost: 0 },
+    { id: "custard", name: "슈크림", short: "슈", color: "#e0a33a", price: 72, cost: 17, unlockCost: 0 },
+    { id: "cheese", name: "치즈", short: "치", color: "#f1bd35", price: 82, cost: 22, unlockCost: 240 },
+    { id: "sweetpotato", name: "고구마", short: "고", color: "#a864d6", price: 92, cost: 26, unlockCost: 330 },
+    { id: "matcha", name: "말차", short: "말", color: "#4b9c63", price: 104, cost: 30, unlockCost: 430 }
   ];
+
+  const customerTypes = {
+    normal: {
+      label: "",
+      patience: 1,
+      pay: 1,
+      tip: 1,
+      gems: 1,
+      repReward: 1,
+      repPenalty: 7,
+      drain: 0
+    },
+    rush: {
+      label: "급함",
+      patience: 0.72,
+      pay: 1.08,
+      tip: 1.18,
+      gems: 2,
+      repReward: 1,
+      repPenalty: 9,
+      drain: 0
+    },
+    vip: {
+      label: "귀빈",
+      patience: 0.86,
+      pay: 1.62,
+      tip: 1.45,
+      gems: 3,
+      repReward: 4,
+      repPenalty: 12,
+      drain: 0
+    },
+    trouble: {
+      label: "진상",
+      patience: 0.58,
+      pay: 0.72,
+      tip: 0.45,
+      gems: 0,
+      repReward: 0,
+      repPenalty: 6,
+      drain: 0.28
+    }
+  };
 
   const upgrades = [
     {
@@ -27,7 +78,7 @@
     {
       id: "heat",
       name: "고화력 열판",
-      meta: "굽는 속도 증가",
+      meta: "속도 증가, 타이밍 난도 상승",
       icon: "火",
       base: 160,
       max: 5
@@ -62,6 +113,7 @@
   const defaultSave = {
     coins: 520,
     gems: 12,
+    reputation: 80,
     day: 1,
     bestRevenue: 0,
     unlockedRecipes: ["redbean", "custard"],
@@ -79,6 +131,7 @@
     dayText: document.querySelector("#dayText"),
     coinsText: document.querySelector("#coinsText"),
     gemsText: document.querySelector("#gemsText"),
+    reputationText: document.querySelector("#reputationText"),
     timerText: document.querySelector("#timerText"),
     goalLabel: document.querySelector("#goalLabel"),
     goalFill: document.querySelector("#goalFill"),
@@ -89,7 +142,6 @@
     heatText: document.querySelector("#heatText"),
     grill: document.querySelector("#grill"),
     recipes: document.querySelector("#recipes"),
-    toolButtons: Array.from(document.querySelectorAll(".tool-button")),
     shopButton: document.querySelector("#shopButton"),
     missionsButton: document.querySelector("#missionsButton"),
     newDayButton: document.querySelector("#newDayButton"),
@@ -115,7 +167,7 @@
     closedDay: 1,
     closedGoal: 0,
     closedBonus: 0,
-    tool: "batter",
+    closedReason: "time",
     selectedRecipeId: "redbean",
     orders: [],
     orderRenderKey: "__init__",
@@ -126,12 +178,21 @@
     maxCombo: 1,
     lastTick: performance.now(),
     lastRender: 0,
+    lastCustomerSprite: -1,
     stats: createStats(),
     missions: []
   };
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
+  }
+
+  function clampNumber(value, min, max) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return min;
+    }
+    return Math.max(min, Math.min(max, numeric));
   }
 
   function loadSave() {
@@ -144,6 +205,7 @@
       return {
         ...clone(defaultSave),
         ...parsed,
+        reputation: clampNumber(parsed.reputation ?? defaultSave.reputation, 0, 100),
         unlockedRecipes: Array.isArray(parsed.unlockedRecipes)
           ? parsed.unlockedRecipes
           : clone(defaultSave.unlockedRecipes),
@@ -168,7 +230,9 @@
       orders: 0,
       missed: 0,
       burned: 0,
-      perfect: 0
+      perfect: 0,
+      cost: 0,
+      waste: 0
     };
   }
 
@@ -179,7 +243,8 @@
       recipeId: null,
       progress: 0,
       readyAge: 0,
-      perfectFront: false
+      perfectFront: false,
+      cost: 0
     }));
   }
 
@@ -193,6 +258,10 @@
 
   function getCookRate() {
     return 24 + getUpgradeLevel("heat") * 3.8;
+  }
+
+  function getBatterRate() {
+    return getCookRate() * 0.82;
   }
 
   function getServeBonus() {
@@ -217,6 +286,37 @@
 
   function compactMoney(value) {
     return won.format(Math.max(0, Math.round(value)));
+  }
+
+  function getReputation() {
+    return clampNumber(state.save.reputation ?? defaultSave.reputation, 0, 100);
+  }
+
+  function setReputation(value) {
+    state.save.reputation = clampNumber(value, 0, 100);
+  }
+
+  function adjustReputation(delta) {
+    if (!delta) {
+      return;
+    }
+    setReputation(getReputation() + delta);
+    saveGame();
+    if (state.running && getReputation() <= 0) {
+      showToast("평판이 바닥났습니다");
+      endDay("reputation");
+    }
+  }
+
+  function spendMaterial(slot, amount) {
+    if (state.save.coins < amount) {
+      return false;
+    }
+    state.save.coins -= amount;
+    state.stats.cost += amount;
+    slot.cost += amount;
+    saveGame();
+    return true;
   }
 
   function formatTime(seconds) {
@@ -252,11 +352,6 @@
     renderAll();
   }
 
-  function selectTool(tool) {
-    state.tool = tool;
-    renderTools();
-  }
-
   function setPaused(paused) {
     if (!state.running) {
       return;
@@ -277,68 +372,85 @@
     }
 
     const slot = state.slots[index];
-    const action = slotActions[state.tool];
-    if (action) {
-      action(slot);
+    if (slot.stage === "empty") {
+      pourBatter(slot);
+      return;
+    }
+    if (slot.stage === "batter") {
+      addFilling(slot);
+      return;
+    }
+    if (slot.stage === "front") {
+      flipSlot(slot);
+      return;
+    }
+    if (slot.stage === "back") {
+      showToast("뒷면이 익는 중입니다");
+      return;
+    }
+    if (slot.stage === "ready") {
+      serveSlot(slot);
+      return;
+    }
+    if (slot.stage === "burnt") {
+      cleanBurnt(slot);
     }
   }
 
-  const slotActions = {
-    batter(slot) {
-      if (slot.stage !== "empty") {
-        showToast("빈 틀을 골라주세요");
-        return;
-      }
-      slot.stage = "batter";
-      slot.recipeId = null;
-      slot.progress = 0;
-      slot.readyAge = 0;
-      slot.perfectFront = false;
-      renderGrill();
-    },
-    filling(slot) {
-      if (slot.stage !== "batter") {
-        showToast("반죽 위에 속을 올릴 수 있습니다");
-        return;
-      }
-      slot.stage = "front";
-      slot.recipeId = state.selectedRecipeId;
-      slot.progress = 0;
-      slot.readyAge = 0;
-      renderGrill();
-    },
-    flip(slot) {
-      if (slot.stage !== "front") {
-        showToast("앞면을 굽는 붕어빵을 뒤집으세요");
-        return;
-      }
-      if (slot.progress < 72) {
-        showToast("조금 더 익혀주세요");
-        return;
-      }
-      if (slot.progress > 116) {
-        burnSlot(slot);
-        showToast("타기 직전이었습니다");
-        renderGrill();
-        return;
-      }
-      slot.perfectFront = slot.progress >= 88 && slot.progress <= 102;
-      slot.stage = "back";
-      slot.progress = 0;
-      renderGrill();
-    },
-    serve(slot) {
-      if (slot.stage === "burnt") {
-        cleanBurnt(slot);
-        return;
-      }
-      if (slot.stage !== "ready") {
-        showToast("완성된 붕어빵만 서빙할 수 있습니다");
-        return;
-      }
-      serveSlot(slot);
+  function pourBatter(slot) {
+    if (!spendMaterial(slot, BATTER_COST)) {
+      showToast("반죽 재료비가 부족합니다");
+      return;
     }
-  };
+    slot.stage = "batter";
+    slot.recipeId = null;
+    slot.progress = 0;
+    slot.readyAge = 0;
+    slot.perfectFront = false;
+    renderAll();
+  }
+
+  function addFilling(slot) {
+    if (slot.progress < BATTER_SET_PROGRESS) {
+      showToast("반죽이 아직 자리 잡는 중입니다");
+      return;
+    }
+    if (slot.progress >= BATTER_BURN_PROGRESS) {
+      burnSlot(slot);
+      showToast("반죽만 익어버렸습니다");
+      renderAll();
+      return;
+    }
+
+    const recipe = getRecipe(state.selectedRecipeId);
+    if (!spendMaterial(slot, recipe.cost)) {
+      showToast(`${recipe.name} 속재료비가 부족합니다`);
+      return;
+    }
+    slot.stage = "front";
+    slot.recipeId = state.selectedRecipeId;
+    slot.progress = 0;
+    slot.readyAge = 0;
+    slot.perfectFront = false;
+    renderAll();
+  }
+
+  function flipSlot(slot) {
+    if (slot.progress < FRONT_FLIP_PROGRESS) {
+      showToast("조금 더 익혀주세요");
+      return;
+    }
+    if (slot.progress > FRONT_BURN_PROGRESS - 6) {
+      burnSlot(slot);
+      showToast("타기 직전이었습니다");
+      renderAll();
+      return;
+    }
+    slot.perfectFront = slot.progress >= FRONT_GOLDEN_MIN && slot.progress <= FRONT_GOLDEN_MAX;
+    slot.stage = "back";
+    slot.progress = 0;
+    renderGrill();
+  }
 
   function updateSlots(delta) {
     state.slots.forEach((slot, index) => {
@@ -346,11 +458,19 @@
         return;
       }
 
+      if (slot.stage === "batter") {
+        slot.progress += delta * getBatterRate();
+      }
+
       if (slot.stage === "front" || slot.stage === "back") {
         slot.progress += delta * getCookRate();
       }
 
-      if (slot.stage === "front" && slot.progress >= 122) {
+      if (slot.stage === "batter" && slot.progress >= BATTER_BURN_PROGRESS) {
+        burnSlot(slot);
+      }
+
+      if (slot.stage === "front" && slot.progress >= FRONT_BURN_PROGRESS) {
         burnSlot(slot);
       }
 
@@ -372,6 +492,7 @@
   function burnSlot(slot) {
     if (slot.stage !== "burnt") {
       state.stats.burned += 1;
+      state.stats.waste += slot.cost;
       state.combo = 1;
     }
     slot.stage = "burnt";
@@ -391,27 +512,117 @@
     slot.progress = 0;
     slot.readyAge = 0;
     slot.perfectFront = false;
+    slot.cost = 0;
+  }
+
+  function getOrderTotalRemaining(order) {
+    return order.items.reduce((total, item) => total + item.remaining, 0);
+  }
+
+  function findMatchingOrder(recipeId) {
+    return state.orders.find((order) =>
+      order.items.some((item) => item.recipeId === recipeId && item.remaining > 0)
+    );
+  }
+
+  function getCustomerType(id) {
+    return customerTypes[id] || customerTypes.normal;
+  }
+
+  function chooseCustomerType() {
+    const day = state.save.day;
+    const roll = Math.random();
+    const troubleChance = day >= 4 ? Math.min(0.16, 0.04 + day * 0.01) : 0;
+    const vipChance = day >= 3 ? Math.min(0.18, 0.05 + day * 0.012) : 0;
+    const rushChance = Math.min(0.34, 0.15 + day * 0.018);
+
+    if (roll < troubleChance) {
+      return "trouble";
+    }
+    if (roll < troubleChance + vipChance) {
+      return "vip";
+    }
+    if (roll < troubleChance + vipChance + rushChance) {
+      return "rush";
+    }
+    return "normal";
+  }
+
+  function buildOrderItems(available, customerTypeId = "normal") {
+    const day = state.save.day;
+    const typeBonus = customerTypeId === "vip" && day >= 4 ? 1 : 0;
+    const maxQuantity = Math.min(4, (day < 3 ? 1 : day < 5 ? 2 : 3) + typeBonus);
+    const totalQuantity = maxQuantity === 1 ? 1 : 1 + Math.floor(Math.random() * maxQuantity);
+    const canMix = day >= 4 && totalQuantity >= 2 && available.length >= 2;
+    const shouldMix = canMix && Math.random() < Math.min(0.72, 0.28 + day * 0.06);
+    const counts = new Map();
+
+    if (shouldMix) {
+      for (let index = 0; index < totalQuantity; index += 1) {
+        const recipe = available[Math.floor(Math.random() * available.length)];
+        counts.set(recipe.id, (counts.get(recipe.id) || 0) + 1);
+      }
+      if (counts.size === 1 && available.length > 1) {
+        const firstId = Array.from(counts.keys())[0];
+        const other = available.find((recipe) => recipe.id !== firstId);
+        counts.set(firstId, counts.get(firstId) - 1);
+        counts.set(other.id, 1);
+      }
+    } else {
+      const recipe = available[Math.floor(Math.random() * available.length)];
+      counts.set(recipe.id, totalQuantity);
+    }
+
+    return Array.from(counts.entries())
+      .filter(([, quantity]) => quantity > 0)
+      .map(([recipeId, quantity]) => ({ recipeId, quantity, remaining: quantity }));
+  }
+
+  function getOrderLine(order, useRemaining = true) {
+    return order.items
+      .filter((item) => (useRemaining ? item.remaining : item.quantity) > 0)
+      .map((item) => `${getRecipe(item.recipeId).name}붕 ${useRemaining ? item.remaining : item.quantity}개`)
+      .join(", ");
+  }
+
+  function getOrderSpeech(order) {
+    const line = `${getOrderLine(order, true)} 주세요!`;
+    if (order.type === "vip") {
+      return `${line} 잘 부탁해요`;
+    }
+    if (order.type === "trouble") {
+      return `${line} 빨리요`;
+    }
+    return line;
   }
 
   function serveSlot(slot) {
     const recipe = getRecipe(slot.recipeId);
-    const order = state.orders.find((item) => item.recipeId === recipe.id);
-    const perfect = slot.perfectFront && slot.readyAge <= 3.2;
+    const order = findMatchingOrder(recipe.id);
+    const perfect = slot.perfectFront && slot.readyAge <= READY_PERFECT_SECONDS;
     let value = recipe.price * getServeBonus();
     let message = "진열 판매";
+    let patienceRatio = 0;
+    let comboQualified = false;
 
     if (order) {
-      const patienceRatio = Math.max(0, order.patience / order.maxPatience);
-      value *= 1 + patienceRatio * 0.38;
-      order.remaining -= 1;
-      message = `${order.name} 주문 완료`;
-      if (order.remaining <= 0) {
+      const profile = getCustomerType(order.type);
+      const target = order.items.find((item) => item.recipeId === recipe.id && item.remaining > 0);
+      patienceRatio = Math.max(0, order.patience / order.maxPatience);
+      value *= profile.pay;
+      value *= 1 + patienceRatio * 0.38 * profile.tip;
+      target.remaining -= 1;
+      message = `${order.name} ${recipe.name} 전달`;
+      if (getOrderTotalRemaining(order) <= 0) {
         state.orders = state.orders.filter((item) => item.id !== order.id);
         state.stats.orders += 1;
-        state.save.gems += order.rush ? 2 : 1;
+        state.save.gems += profile.gems;
+        adjustReputation(profile.repReward);
+        message = `${order.name} 주문 완료`;
       }
     } else {
       value *= 0.52;
+      state.combo = 1;
     }
 
     if (perfect) {
@@ -420,12 +631,19 @@
       message = `${message} · 완벽`;
     }
 
-    value *= state.combo;
+    comboQualified = Boolean(order && perfect && patienceRatio >= 0.55 && order.type !== "trouble");
+    if (comboQualified) {
+      value *= state.combo;
+      state.combo = Math.min(5, state.combo * 1.08 + 0.16);
+      message = `${message} · 콤보`;
+    } else if (order) {
+      state.combo = 1;
+    }
+
     value = Math.round(value);
     state.save.coins += value;
     state.revenue += value;
     state.stats.pieces += 1;
-    state.combo = Math.min(3, state.combo + 0.13);
     state.maxCombo = Math.max(state.maxCombo, state.combo);
     resetSlot(slot);
     checkMissionRewards();
@@ -440,42 +658,52 @@
     }
 
     const available = unlockedRecipes();
-    const recipe = available[Math.floor(Math.random() * available.length)];
-    const rush = Math.random() < Math.min(0.34, 0.16 + state.save.day * 0.018);
-    const quantity = Math.min(3, 1 + Math.floor(Math.random() * (state.save.day >= 3 ? 3 : 2)));
-    const basePatience = rush ? 26 : 37;
-    const maxPatience = Math.round((basePatience + Math.random() * 12) * getPatienceBonus());
-    const spriteIndex = Math.floor(Math.random() * 9);
+    const type = chooseCustomerType();
+    const profile = getCustomerType(type);
+    const items = buildOrderItems(available, type);
+    const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
+    const basePatience = type === "rush" ? 27 : type === "trouble" ? 30 : 38;
+    const maxPatience = Math.round(
+      (basePatience + Math.random() * 12 + totalQuantity * 4) * profile.patience * getPatienceBonus()
+    );
+    let spriteIndex = Math.floor(Math.random() * 9);
+    if (spriteIndex === state.lastCustomerSprite) {
+      spriteIndex = (spriteIndex + 1 + Math.floor(Math.random() * 8)) % 9;
+    }
+    state.lastCustomerSprite = spriteIndex;
 
     state.orders.push({
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       name: customerNames[Math.floor(Math.random() * customerNames.length)],
-      recipeId: recipe.id,
-      quantity,
-      remaining: quantity,
+      items,
       maxPatience,
       patience: maxPatience,
-      rush,
+      type,
+      rush: type === "rush",
       spriteIndex
     });
   }
 
   function updateOrders(delta) {
+    const troubleDrain = state.orders.reduce((total, order) => total + getCustomerType(order.type).drain, 0);
     for (let index = state.orders.length - 1; index >= 0; index -= 1) {
       const order = state.orders[index];
-      order.patience -= delta;
+      const drain = delta + (order.type === "trouble" ? 0 : delta * troubleDrain);
+      order.patience -= drain;
       if (order.patience <= 0) {
+        const profile = getCustomerType(order.type);
         state.orders.splice(index, 1);
         state.stats.missed += 1;
         state.combo = 1;
+        adjustReputation(-profile.repPenalty);
         showToast(`${order.name} 손님이 떠났습니다`);
       }
     }
   }
 
   function getOrderDelay() {
-    const speedUp = Math.min(2.8, state.save.day * 0.18 + getUpgradeLevel("charm") * 0.2);
-    return Math.max(3.6, 6.8 - speedUp + Math.random() * 2.2);
+    const speedUp = Math.min(3.4, state.save.day * 0.22 + getUpgradeLevel("charm") * 0.12);
+    return Math.max(2.9, 7.2 - speedUp + Math.random() * 2);
   }
 
   function buildMissions() {
@@ -575,7 +803,7 @@
     state.timeLeft = DAY_SECONDS;
     state.revenue = 0;
     state.closedBonus = 0;
-    state.tool = "batter";
+    state.closedReason = "time";
     state.selectedRecipeId = isUnlocked(state.selectedRecipeId) ? state.selectedRecipeId : "redbean";
     state.orders = [];
     state.orderRenderKey = "__reset__";
@@ -593,7 +821,7 @@
     renderAll();
   }
 
-  function endDay() {
+  function endDay(reason = "time") {
     if (!state.running) {
       return;
     }
@@ -602,12 +830,14 @@
     state.paused = false;
     state.closedDay = state.save.day;
     state.closedGoal = getGoal();
+    state.closedReason = reason;
 
-    const hitGoal = state.revenue >= state.closedGoal;
+    const hitGoal = reason !== "reputation" && state.revenue >= state.closedGoal;
     state.closedBonus = hitGoal ? Math.round(120 + state.closedDay * 24) : 0;
     if (hitGoal) {
       state.save.coins += state.closedBonus;
       state.save.gems += 3;
+      setReputation(getReputation() + 4);
     }
 
     state.save.bestRevenue = Math.max(state.save.bestRevenue, state.revenue);
@@ -634,7 +864,7 @@
       checkMissionRewards();
 
       if (state.timeLeft <= 0) {
-        endDay();
+        endDay("time");
       }
     }
 
@@ -648,7 +878,6 @@
 
   function renderAll() {
     renderHud();
-    renderTools();
     renderRecipes();
     renderOrders(false);
     renderGrill(false);
@@ -669,21 +898,14 @@
     els.dayText.textContent = `DAY ${state.save.day}`;
     els.coinsText.textContent = compactMoney(state.save.coins);
     els.gemsText.textContent = compactMoney(state.save.gems);
+    els.reputationText.textContent = Math.round(getReputation());
     els.timerText.textContent = formatTime(state.timeLeft);
     els.goalLabel.textContent = `목표 ${money(goal)}`;
     els.goalFill.style.width = `${progress}%`;
     els.revenueText.textContent = money(state.revenue);
     els.comboText.textContent = `x${state.combo.toFixed(1)}`;
     els.heatText.textContent = `열판 Lv.${getUpgradeLevel("heat")}`;
-    els.selectedRecipeText.textContent = `${getRecipe(state.selectedRecipeId).name} 속`;
-  }
-
-  function renderTools() {
-    els.toolButtons.forEach((button) => {
-      const active = button.dataset.tool === state.tool;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-pressed", String(active));
-    });
+    els.selectedRecipeText.textContent = `${getRecipe(state.selectedRecipeId).name}붕 선택`;
   }
 
   function renderRecipes() {
@@ -692,9 +914,11 @@
         const unlocked = isUnlocked(recipe.id);
         const active = state.selectedRecipeId === recipe.id;
         return `
-          <button class="recipe-button ${active ? "active" : ""} ${unlocked ? "" : "locked"}" type="button" data-recipe="${recipe.id}" aria-pressed="${active}" style="--recipe-color:${recipe.color}">
-            <span class="recipe-dot" aria-hidden="true"></span>
-            <span>${unlocked ? recipe.name : "잠김"}</span>
+          <button class="recipe-button recipe-${recipe.id} ${active ? "active" : ""} ${unlocked ? "" : "locked"}" type="button" data-recipe="${recipe.id}" aria-pressed="${active}" style="--recipe-color:${recipe.color}">
+            <span class="recipe-dot" aria-hidden="true">
+              <span class="filling-mark filling-${recipe.id}"></span>
+            </span>
+            <span class="recipe-name">${unlocked ? `${recipe.name}붕` : "잠김"}</span>
           </button>
         `;
       })
@@ -707,7 +931,12 @@
 
   function getOrdersRenderKey() {
     return state.orders
-      .map((order) => `${order.id}:${order.recipeId}:${order.remaining}:${order.rush ? 1 : 0}`)
+      .map((order) => {
+        const itemsKey = order.items
+          .map((item) => `${item.recipeId}:${item.remaining}`)
+          .join(",");
+        return `${order.id}:${itemsKey}:${order.type}:${order.rush ? 1 : 0}`;
+      })
       .join("|");
   }
 
@@ -720,6 +949,45 @@
       const patience = Math.max(0, (order.patience / order.maxPatience) * 100);
       bar.style.setProperty("--patience", `${patience}%`);
     });
+  }
+
+  function getSlotProgressPercent(slot) {
+    if (slot.stage === "ready" || slot.stage === "burnt") {
+      return 100;
+    }
+    if (slot.stage === "batter") {
+      return Math.min(100, (slot.progress / BATTER_BURN_PROGRESS) * 100);
+    }
+    return Math.min(100, slot.progress);
+  }
+
+  function getSlotBand(slot) {
+    if (slot.stage === "empty") {
+      return "empty";
+    }
+    if (slot.stage === "batter") {
+      return slot.progress >= BATTER_SET_PROGRESS ? "fill-ready" : "batter";
+    }
+    if (slot.stage === "front") {
+      if (slot.progress < FRONT_FLIP_PROGRESS) {
+        return "undercooked";
+      }
+      if (slot.progress <= FRONT_GOLDEN_MAX) {
+        return "golden";
+      }
+      return "over";
+    }
+    if (slot.stage === "back") {
+      return slot.progress >= 88 ? "golden" : "undercooked";
+    }
+    return slot.stage;
+  }
+
+  function updateSlotBandClass(button, slot) {
+    Array.from(button.classList)
+      .filter((className) => className.startsWith("band-"))
+      .forEach((className) => button.classList.remove(className));
+    button.classList.add(`band-${getSlotBand(slot)}`);
   }
 
   function renderOrders(force = false) {
@@ -738,15 +1006,31 @@
 
     els.orders.innerHTML = state.orders
       .map((order) => {
-        const recipe = getRecipe(order.recipeId);
+        const primaryRecipe = getRecipe(order.items[0].recipeId);
+        const profile = getCustomerType(order.type);
         const patience = Math.max(0, (order.patience / order.maxPatience) * 100);
+        const itemChips = order.items
+          .filter((item) => item.remaining > 0)
+          .map((item) => {
+            const recipe = getRecipe(item.recipeId);
+            return `
+              <span class="order-chip recipe-${recipe.id}" style="--recipe-color:${recipe.color}" title="${recipe.name}붕 ${item.remaining}개">
+                <span class="mini-fish" aria-hidden="true">
+                  <span class="filling-mark filling-${recipe.id}"></span>
+                </span>
+                <span class="count-badge">x${item.remaining}</span>
+              </span>
+            `;
+          })
+          .join("");
         return `
-          <article class="customer-card" data-order-id="${order.id}" style="--recipe-color:${recipe.color}; --bubble:${order.rush ? "#ff647d" : recipe.color}">
+          <article class="customer-card customer-${order.type}" data-order-id="${order.id}" style="--recipe-color:${primaryRecipe.color}; --bubble:${order.type === "rush" ? "#ff647d" : primaryRecipe.color}">
             <div class="speech">
-              <span class="mini-fish" aria-hidden="true"></span>
-              <span>x${order.remaining}</span>
+              ${profile.label ? `<span class="customer-tag">${profile.label}</span>` : ""}
+              <span class="speech-text">${getOrderSpeech(order)}</span>
+              <span class="order-chips" aria-hidden="true">${itemChips}</span>
             </div>
-            <div class="person sprite-${order.spriteIndex}" aria-label="${order.name} ${recipe.name} 주문"></div>
+            <div class="person sprite-${order.spriteIndex}" aria-label="${order.name} ${getOrderLine(order, true)} 주문"></div>
             <div class="patience-bar" aria-hidden="true"><span style="--patience:${patience}%"></span></div>
           </article>
         `;
@@ -777,7 +1061,9 @@
         label.textContent = getSlotLabel(slot, index >= capacity);
       }
 
-      const progress = slot.stage === "ready" || slot.stage === "burnt" ? 100 : Math.min(100, slot.progress);
+      updateSlotBandClass(button, slot);
+
+      const progress = getSlotProgressPercent(slot);
       const bar = button.querySelector(".slot-progress span");
       if (bar) {
         bar.style.setProperty("--progress", `${progress}%`);
@@ -806,14 +1092,18 @@
         if (hasFish) {
           classes.push("has-fish");
         }
-        const progress = slot.stage === "ready" || slot.stage === "burnt" ? 100 : Math.min(100, slot.progress);
+        if (recipe) {
+          classes.push(`recipe-${recipe.id}`);
+        }
+        classes.push(`band-${getSlotBand(slot)}`);
+        const progress = getSlotProgressPercent(slot);
         return `
           <button class="${classes.join(" ")}" type="button" data-index="${index}" aria-label="${getSlotLabel(slot, locked)}" style="--recipe-color:${recipe ? recipe.color : "#8b3f39"}">
             <span class="slot-label">${getSlotLabel(slot, locked)}</span>
             <span class="fish" aria-hidden="true">
               <span class="fish-sprite"></span>
             </span>
-            ${recipe ? `<span class="filling-badge">${recipe.short}</span>` : ""}
+            ${recipe ? `<span class="filling-badge filling-${recipe.id}" title="${recipe.name}붕" aria-label="${recipe.name}붕"></span>` : ""}
             <span class="slot-progress" aria-hidden="true"><span style="--progress:${progress}%"></span></span>
             <span class="lock-mark" aria-hidden="true">＋</span>
           </button>
@@ -830,13 +1120,24 @@
     if (locked) {
       return "확장";
     }
+    if (slot.stage === "batter") {
+      return slot.progress >= BATTER_SET_PROGRESS ? "속넣기" : "반죽";
+    }
+    if (slot.stage === "front") {
+      if (slot.progress < FRONT_FLIP_PROGRESS) {
+        return "덜익음";
+      }
+      return slot.progress <= FRONT_GOLDEN_MAX ? "뒤집기" : "타기직전";
+    }
+    if (slot.stage === "back") {
+      return slot.progress >= 88 ? "황금" : "뒷면";
+    }
+    if (slot.stage === "ready") {
+      return slot.readyAge <= READY_PERFECT_SECONDS ? "황금" : "완성";
+    }
     const labels = {
       empty: "빈틀",
-      batter: "반죽",
-      front: "앞면",
-      back: "뒷면",
-      ready: "완성",
-      burnt: "탐"
+      burnt: "폐기"
     };
     return labels[slot.stage] || "빈틀";
   }
@@ -867,7 +1168,11 @@
         const disabled = unlocked || state.save.coins < recipe.unlockCost;
         return `
           <button class="shop-item" type="button" data-recipe-unlock="${recipe.id}" ${disabled ? "disabled" : ""}>
-            <span class="shop-icon" aria-hidden="true" style="background:linear-gradient(135deg, ${recipe.color}, #ff9a34)">魚</span>
+            <span class="shop-icon recipe-icon recipe-${recipe.id}" aria-hidden="true" style="--recipe-color:${recipe.color}">
+              <span class="recipe-dot">
+                <span class="filling-mark filling-${recipe.id}"></span>
+              </span>
+            </span>
             <span>
               <span class="shop-title">${recipe.name} 레시피</span>
               <span class="shop-meta">${unlocked ? "해금 완료" : `판매가 ${money(recipe.price)}`}</span>
@@ -916,12 +1221,16 @@
 
   function renderSummary(hitGoal) {
     const bonusText = hitGoal ? `${money(state.closedBonus)} + 3보석` : "없음";
+    const statusText = state.closedReason === "reputation" ? "평판 붕괴" : hitGoal ? "목표 달성" : "목표 미달";
     els.summaryStats.innerHTML = `
       <div><span>DAY</span><strong>${state.closedDay}</strong></div>
-      <div><span>목표</span><strong>${hitGoal ? "달성" : "미달"}</strong></div>
+      <div><span>상태</span><strong>${statusText}</strong></div>
       <div><span>매출</span><strong>${money(state.revenue)}</strong></div>
+      <div><span>재료비</span><strong>${money(state.stats.cost)}</strong></div>
       <div><span>보너스</span><strong>${bonusText}</strong></div>
+      <div><span>폐기손실</span><strong>${money(state.stats.waste)}</strong></div>
       <div><span>주문</span><strong>${state.stats.orders}건</strong></div>
+      <div><span>평판</span><strong>${Math.round(getReputation())}</strong></div>
       <div><span>최고 콤보</span><strong>x${state.maxCombo.toFixed(1)}</strong></div>
     `;
     els.daySummary.classList.remove("hidden");
@@ -953,9 +1262,6 @@
   }
 
   function bindEvents() {
-    els.toolButtons.forEach((button) => {
-      button.addEventListener("click", () => selectTool(button.dataset.tool));
-    });
     els.shopButton.addEventListener("click", () => openSheet("shopSheet"));
     els.missionsButton.addEventListener("click", () => openSheet("missionsSheet"));
     els.newDayButton.addEventListener("click", startNewDay);

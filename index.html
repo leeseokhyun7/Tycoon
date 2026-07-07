@@ -39,6 +39,10 @@
             <span class="gem-icon" aria-hidden="true"></span>
             <strong id="gemsText">0</strong>
           </div>
+          <div class="resource-pill rep-pill">
+            <span class="rep-icon" aria-hidden="true">♥</span>
+            <strong id="reputationText">80</strong>
+          </div>
           <div class="resource-pill time-pill">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="12" r="8" />
@@ -68,7 +72,8 @@
           </div>
           <div class="grill-card">
             <div class="tray-status">
-              <span id="selectedRecipeText">팥</span>
+              <span id="selectedRecipeText">팥붕 선택</span>
+              <small>반죽 → 속 → 뒤집기 → 수거</small>
               <strong id="heatText">열판 Lv.0</strong>
             </div>
             <div id="grill" class="grill-grid" aria-label="붕어빵 조리판"></div>
@@ -78,39 +83,6 @@
 
       <section class="control-dock" aria-label="조작 패널">
         <div id="recipes" class="recipe-strip" aria-label="속재료 선택"></div>
-        <div class="tool-row" aria-label="조리 도구">
-          <button class="tool-button active" type="button" data-tool="batter" aria-pressed="true">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M7 4h10l-1 6H8L7 4Z" />
-              <path d="M8 10h8l2 9a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2l2-9Z" />
-              <path d="M10 14h4" />
-            </svg>
-            <span>반죽</span>
-          </button>
-          <button class="tool-button" type="button" data-tool="filling" aria-pressed="false">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 3c4 4 6 7 6 11a6 6 0 0 1-12 0c0-4 2-7 6-11Z" />
-              <path d="M9.5 15.5c1.4 1 3.6 1 5 0" />
-            </svg>
-            <span>속</span>
-          </button>
-          <button class="tool-button" type="button" data-tool="flip" aria-pressed="false">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M7 7h10a4 4 0 0 1 0 8H8" />
-              <path d="M8 11 4 15l4 4" />
-              <path d="M11 4 7 7l4 3" />
-            </svg>
-            <span>뒤집기</span>
-          </button>
-          <button class="tool-button" type="button" data-tool="serve" aria-pressed="false">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 10h16" />
-              <path d="M6 10l1 9h10l1-9" />
-              <path d="M8 10a4 4 0 0 1 8 0" />
-            </svg>
-            <span>서빙</span>
-          </button>
-        </div>
         <nav class="nav-row" aria-label="관리 메뉴">
           <button id="shopButton" class="nav-button" type="button">
             <svg viewBox="0 0 24 24" aria-hidden="true">
