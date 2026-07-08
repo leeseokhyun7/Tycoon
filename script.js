@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const SAVE_KEY = "bungeoppang-snow-market-v5";
+  const SAVE_KEY = "bungeoppang-snow-market-v6";
   const DAY_SECONDS = 60;
   const SLOT_COUNT = 12;
   const MAX_ORDERS = 3;
@@ -16,11 +16,11 @@
   const won = new Intl.NumberFormat("ko-KR");
 
   const recipes = [
-    { id: "redbean", name: "팥", short: "팥", color: "#8b3f39", price: 65, cost: 14, unlockCost: 0 },
-    { id: "custard", name: "슈크림", short: "슈", color: "#e0a33a", price: 72, cost: 17, unlockCost: 0 },
-    { id: "cheese", name: "치즈", short: "치", color: "#f1bd35", price: 82, cost: 22, unlockCost: 240 },
-    { id: "sweetpotato", name: "고구마", short: "고", color: "#a864d6", price: 92, cost: 26, unlockCost: 330 },
-    { id: "matcha", name: "말차", short: "말", color: "#4b9c63", price: 104, cost: 30, unlockCost: 430 }
+    { id: "redbean", name: "팥", short: "팥", color: "#8b3f39", price: 38, cost: 12, unlockCost: 0 },
+    { id: "custard", name: "슈크림", short: "슈", color: "#e0a33a", price: 42, cost: 14, unlockCost: 0 },
+    { id: "cheese", name: "치즈", short: "치", color: "#f1bd35", price: 50, cost: 17, unlockCost: 900 },
+    { id: "sweetpotato", name: "고구마", short: "고", color: "#a864d6", price: 58, cost: 20, unlockCost: 1300 },
+    { id: "matcha", name: "말차", short: "말", color: "#4b9c63", price: 66, cost: 23, unlockCost: 1800 }
   ];
 
   const customerTypes = {
@@ -60,7 +60,7 @@
       name: "붕어틀 확장",
       meta: "조리칸을 2칸씩 추가",
       icon: "▦",
-      base: 180,
+      base: 850,
       max: 3
     },
     {
@@ -68,7 +68,7 @@
       name: "고화력 열판",
       meta: "속도 증가, 타이밍 난도 상승",
       icon: "火",
-      base: 160,
+      base: 700,
       max: 5
     },
     {
@@ -76,7 +76,7 @@
       name: "리본 포장",
       meta: "서빙 수익 증가",
       icon: "＋",
-      base: 150,
+      base: 650,
       max: 5
     },
     {
@@ -84,7 +84,7 @@
       name: "눈꽃 간판",
       meta: "손님 대기시간 증가",
       icon: "★",
-      base: 135,
+      base: 620,
       max: 4
     },
     {
@@ -92,7 +92,7 @@
       name: "온장 진열대",
       meta: "완성품 유지시간 증가",
       icon: "▣",
-      base: 190,
+      base: 760,
       max: 4
     }
   ];
@@ -279,7 +279,7 @@
   }
 
   function getGoal() {
-    return 430 + (state.save.day - 1) * 95;
+    return 260 + (state.save.day - 1) * 70;
   }
 
   function money(value) {
@@ -615,11 +615,12 @@
 
   function buildOrderItems(available, customerTypeId = "normal") {
     const day = state.save.day;
-    const typeBonus = customerTypeId === "vip" && day >= 4 ? 1 : 0;
-    const maxQuantity = Math.min(4, (day < 3 ? 1 : day < 5 ? 2 : 3) + typeBonus);
+    const typeBonus = customerTypeId === "vip" && day >= 5 ? 1 : 0;
+    const baseMax = day <= 2 ? 1 : day <= 4 ? 2 : 3;
+    const maxQuantity = Math.min(4, baseMax + typeBonus);
     const totalQuantity = maxQuantity === 1 ? 1 : 1 + Math.floor(Math.random() * maxQuantity);
-    const canMix = day >= 4 && totalQuantity >= 2 && available.length >= 2;
-    const shouldMix = canMix && Math.random() < Math.min(0.72, 0.28 + day * 0.06);
+    const canMix = day >= 5 && totalQuantity >= 2 && available.length >= 2;
+    const shouldMix = canMix && Math.random() < Math.min(0.58, 0.18 + day * 0.045);
     const counts = new Map();
 
     if (shouldMix) {
@@ -785,7 +786,7 @@
     const profile = getCustomerType(order.type);
     patienceRatio = Math.max(0, order.patience / order.maxPatience);
     value *= profile.pay;
-    value *= 1 + patienceRatio * 0.38 * profile.tip;
+    value *= 1 + patienceRatio * 0.18 * profile.tip;
     target.remaining -= 1;
     message = `${order.name} ${recipe.name} 전달`;
     let completed = false;
@@ -797,7 +798,7 @@
     }
 
     if (perfect) {
-      value *= 1.18;
+      value *= 1.08;
       state.stats.perfect += 1;
       message = `${message} · 완벽`;
     }
@@ -805,7 +806,7 @@
     comboQualified = Boolean(order && perfect && patienceRatio >= 0.55 && order.type !== "trouble");
     if (comboQualified) {
       value *= state.combo;
-      state.combo = Math.min(5, state.combo * 1.08 + 0.16);
+      state.combo = Math.min(3, state.combo * 1.04 + 0.08);
       message = `${message} · 콤보`;
     } else {
       state.combo = 1;
@@ -882,7 +883,7 @@
         id: `orders-${day}`,
         title: `주문 ${Math.min(12, 4 + day)}건`,
         meta: "완료 주문",
-        reward: 110 + day * 18,
+        reward: 45 + day * 8,
         get: () => state.stats.orders,
         target: Math.min(12, 4 + day)
       },
@@ -890,7 +891,7 @@
         id: `pieces-${day}`,
         title: `붕어빵 ${Math.min(28, 9 + day * 2)}개`,
         meta: "서빙 수량",
-        reward: 95 + day * 16,
+        reward: 38 + day * 7,
         get: () => state.stats.pieces,
         target: Math.min(28, 9 + day * 2)
       },
@@ -898,7 +899,7 @@
         id: `combo-${day}`,
         title: `콤보 x${Math.min(2.4, 1.4 + day * 0.12).toFixed(1)}`,
         meta: "최고 콤보",
-        reward: 140 + day * 20,
+        reward: 60 + day * 10,
         get: () => state.maxCombo,
         target: Math.min(2.4, 1.4 + day * 0.12)
       }
@@ -1009,7 +1010,7 @@
     state.closedReason = reason;
 
     const hitGoal = state.revenue >= state.closedGoal;
-    state.closedBonus = hitGoal ? Math.round(120 + state.closedDay * 24) : 0;
+    state.closedBonus = hitGoal ? Math.round(55 + state.closedDay * 14) : 0;
     if (hitGoal) {
       state.save.coins += state.closedBonus;
     }
