@@ -14,14 +14,23 @@
         <img class="intro-bg" src="assets/new/world.png" alt="" />
         <div class="intro-shade" aria-hidden="true"></div>
         <div class="intro-panel">
-          <div class="intro-brand">
-            <img src="assets/shop-mark.svg" width="74" height="74" alt="" />
-            <div>
-              <span class="intro-kicker">SNOW MARKET</span>
-              <h2 id="introTitle">붕어빵 거리</h2>
-            </div>
+          <div class="intro-cast" aria-hidden="true">
+            <span class="intro-face face-0"></span>
+            <span class="intro-face face-1"></span>
+            <span class="intro-face face-2"></span>
+            <span class="intro-face face-3"></span>
+            <span class="intro-face face-4"></span>
+            <span class="intro-face face-5"></span>
+            <span class="intro-face face-6"></span>
           </div>
-          <div class="intro-bbang" aria-hidden="true"></div>
+          <div class="intro-bbang" aria-hidden="true">
+            <span class="intro-baker"></span>
+            <span class="intro-fish"></span>
+          </div>
+          <h2 id="introTitle" class="intro-logo">
+            <span>붕어빵</span>
+            <strong>타이쿤</strong>
+          </h2>
           <div class="intro-stats" aria-label="저장 정보">
             <span id="introDayText">DAY 1</span>
             <span id="introBestText">최고 0원</span>
@@ -45,11 +54,20 @@
               <h1>붕어빵 거리</h1>
             </div>
           </div>
-          <button id="pauseButton" class="round-button" type="button" aria-label="일시정지" title="일시정지">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M8 5v14M16 5v14" />
-            </svg>
-          </button>
+          <div class="hud-actions">
+            <button id="musicButton" class="round-button" type="button" aria-label="배경음악 끄기" title="배경음악">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 18V6l10-2v12" />
+                <circle cx="7" cy="18" r="2" />
+                <circle cx="17" cy="16" r="2" />
+              </svg>
+            </button>
+            <button id="pauseButton" class="round-button" type="button" aria-label="일시정지" title="일시정지">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 5v14M16 5v14" />
+              </svg>
+            </button>
+          </div>
         </header>
 
         <section class="resource-board" aria-label="재화와 목표">
@@ -58,20 +76,6 @@
             <span class="resource-copy">
               <small>매출</small>
               <strong id="coinsText">0원</strong>
-            </span>
-          </div>
-          <div class="resource-pill gem-pill">
-            <span class="gem-icon" aria-hidden="true"></span>
-            <span class="resource-copy">
-              <small>보석</small>
-              <strong id="gemsText">0</strong>
-            </span>
-          </div>
-          <div class="resource-pill rep-pill">
-            <span class="rep-icon" aria-hidden="true">♥</span>
-            <span class="resource-copy">
-              <small>평판</small>
-              <strong id="reputationText">80</strong>
             </span>
           </div>
           <div class="resource-pill time-pill">
@@ -104,12 +108,8 @@
             <span>COMBO</span>
             <strong id="comboText">x1.0</strong>
           </div>
+          <div id="displayCase" class="display-case" aria-label="완성 붕어빵 진열대"></div>
           <div class="grill-card">
-            <div class="tray-status">
-              <span id="selectedRecipeText">팥붕 선택</span>
-              <small>반죽 → 속 → 뒤집기 → 수거</small>
-              <strong id="heatText">열판 Lv.0</strong>
-            </div>
             <div id="grill" class="grill-grid" aria-label="붕어빵 조리판"></div>
           </div>
         </section>
@@ -118,13 +118,6 @@
       <section class="control-dock" aria-label="조작 패널">
         <div id="recipes" class="recipe-strip" aria-label="속재료 선택"></div>
         <nav class="nav-row" aria-label="관리 메뉴">
-          <button id="shopButton" class="nav-button" type="button">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M5 10h14l-1 10H6L5 10Z" />
-              <path d="M8 10a4 4 0 0 1 8 0" />
-            </svg>
-            <span>상점</span>
-          </button>
           <button id="missionsButton" class="nav-button" type="button">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M6 3h9l3 3v15H6V3Z" />
@@ -132,33 +125,7 @@
             </svg>
             <span>미션</span>
           </button>
-          <button id="newDayButton" class="nav-button" type="button">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 4v6h6" />
-              <path d="M20 20v-6h-6" />
-              <path d="M20 9A8 8 0 0 0 6.3 5.3L4 7.6" />
-              <path d="M4 15a8 8 0 0 0 13.7 3.7L20 16.4" />
-            </svg>
-            <span>새날</span>
-          </button>
         </nav>
-      </section>
-
-      <section id="shopSheet" class="sheet hidden" aria-label="상점">
-        <div class="sheet-panel">
-          <div class="sheet-head">
-            <div>
-              <span class="sheet-kicker">SNOW MARKET</span>
-              <h2>상점</h2>
-            </div>
-            <button class="round-button close-sheet" type="button" data-close="shopSheet" aria-label="상점 닫기">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
-            </button>
-          </div>
-          <div id="upgradeList" class="shop-list"></div>
-          <h3>레시피</h3>
-          <div id="recipeShop" class="shop-list recipe-shop"></div>
-        </div>
       </section>
 
       <section id="missionsSheet" class="sheet hidden" aria-label="미션">
@@ -178,10 +145,34 @@
 
       <section id="daySummary" class="summary hidden" role="dialog" aria-modal="true" aria-labelledby="summaryTitle">
         <div class="summary-panel">
-          <span class="sheet-kicker">CLOSED</span>
-          <h2 id="summaryTitle">영업 결과</h2>
-          <div id="summaryStats" class="summary-grid"></div>
-          <button id="summaryButton" class="primary-button" type="button">다음 영업 시작</button>
+          <div id="summaryResultsView" class="summary-view">
+            <span class="sheet-kicker">CLOSED</span>
+            <h2 id="summaryTitle">영업 결과</h2>
+            <div id="summaryStats" class="summary-grid"></div>
+            <div class="summary-actions">
+              <button id="summaryShopButton" class="secondary-button" type="button">상점 확인</button>
+              <button id="summaryButton" class="primary-button" type="button">다음 영업 시작</button>
+            </div>
+          </div>
+          <div id="summaryShopView" class="summary-view hidden" aria-label="상점">
+            <div class="shop-wallet" aria-label="보유 코인">
+              <span class="coin-icon" aria-hidden="true">₩</span>
+              <strong id="shopCoinsText">0</strong>
+            </div>
+            <div class="sheet-head">
+              <button id="summaryBackButton" class="round-button" type="button" aria-label="영업 결과로 돌아가기">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>
+              </button>
+              <div>
+                <span class="sheet-kicker">SNOW MARKET</span>
+                <h2>상점</h2>
+              </div>
+              <span class="sheet-head-spacer" aria-hidden="true"></span>
+            </div>
+            <div id="upgradeList" class="shop-list"></div>
+            <h3>레시피</h3>
+            <div id="recipeShop" class="shop-list recipe-shop"></div>
+          </div>
         </div>
       </section>
 

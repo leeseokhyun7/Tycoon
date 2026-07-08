@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const SAVE_KEY = "bungeoppang-snow-market-v4";
+  const SAVE_KEY = "bungeoppang-snow-market-v5";
   const DAY_SECONDS = 60;
   const SLOT_COUNT = 12;
   const MAX_ORDERS = 3;
@@ -29,9 +29,6 @@
       patience: 1,
       pay: 1,
       tip: 1,
-      gems: 1,
-      repReward: 1,
-      repPenalty: 7,
       drain: 0
     },
     rush: {
@@ -39,9 +36,6 @@
       patience: 0.72,
       pay: 1.08,
       tip: 1.18,
-      gems: 2,
-      repReward: 1,
-      repPenalty: 9,
       drain: 0
     },
     vip: {
@@ -49,9 +43,6 @@
       patience: 0.86,
       pay: 1.62,
       tip: 1.45,
-      gems: 3,
-      repReward: 4,
-      repPenalty: 12,
       drain: 0
     },
     trouble: {
@@ -59,9 +50,6 @@
       patience: 0.58,
       pay: 0.72,
       tip: 0.45,
-      gems: 0,
-      repReward: 0,
-      repPenalty: 6,
       drain: 0.28
     }
   };
@@ -112,8 +100,6 @@
   const customerNames = ["민지", "도윤", "하린", "지후", "서아", "유준", "나윤", "이준", "라온"];
   const defaultSave = {
     coins: 0,
-    gems: 0,
-    reputation: 80,
     day: 1,
     bestRevenue: 0,
     unlockedRecipes: ["redbean", "custard"],
@@ -134,29 +120,29 @@
     introBestText: document.querySelector("#introBestText"),
     dayText: document.querySelector("#dayText"),
     coinsText: document.querySelector("#coinsText"),
-    gemsText: document.querySelector("#gemsText"),
-    reputationText: document.querySelector("#reputationText"),
     timerText: document.querySelector("#timerText"),
     goalLabel: document.querySelector("#goalLabel"),
     goalFill: document.querySelector("#goalFill"),
     revenueText: document.querySelector("#revenueText"),
     orders: document.querySelector("#orders"),
     comboText: document.querySelector("#comboText"),
-    selectedRecipeText: document.querySelector("#selectedRecipeText"),
-    heatText: document.querySelector("#heatText"),
+    displayCase: document.querySelector("#displayCase"),
     grill: document.querySelector("#grill"),
     recipes: document.querySelector("#recipes"),
-    shopButton: document.querySelector("#shopButton"),
     missionsButton: document.querySelector("#missionsButton"),
-    newDayButton: document.querySelector("#newDayButton"),
+    musicButton: document.querySelector("#musicButton"),
     pauseButton: document.querySelector("#pauseButton"),
-    shopSheet: document.querySelector("#shopSheet"),
     missionsSheet: document.querySelector("#missionsSheet"),
     upgradeList: document.querySelector("#upgradeList"),
     recipeShop: document.querySelector("#recipeShop"),
+    shopCoinsText: document.querySelector("#shopCoinsText"),
     missionList: document.querySelector("#missionList"),
     daySummary: document.querySelector("#daySummary"),
+    summaryResultsView: document.querySelector("#summaryResultsView"),
+    summaryShopView: document.querySelector("#summaryShopView"),
     summaryStats: document.querySelector("#summaryStats"),
+    summaryBackButton: document.querySelector("#summaryBackButton"),
+    summaryShopButton: document.querySelector("#summaryShopButton"),
     summaryButton: document.querySelector("#summaryButton"),
     closeButtons: Array.from(document.querySelectorAll(".close-sheet")),
     toast: document.querySelector("#toast")
@@ -175,6 +161,8 @@
     selectedRecipeId: "redbean",
     orders: [],
     orderRenderKey: "__init__",
+    displayStock: [],
+    nextDisplayId: 1,
     slots: createSlots(),
     grillRenderKey: "__init__",
     nextOrderIn: 0.4,
@@ -184,7 +172,14 @@
     lastRender: 0,
     lastCustomerSprite: -1,
     stats: createStats(),
-    missions: []
+    missions: [],
+    musicEnabled: true,
+    music: {
+      context: null,
+      gain: null,
+      timer: 0,
+      step: 0
+    }
   };
 
   function clone(value) {
@@ -206,10 +201,13 @@
         return clone(defaultSave);
       }
 
+      const safeParsed = { ...parsed };
+      delete safeParsed.gems;
+      delete safeParsed.reputation;
+
       return {
         ...clone(defaultSave),
-        ...parsed,
-        reputation: clampNumber(parsed.reputation ?? defaultSave.reputation, 0, 100),
+        ...safeParsed,
         unlockedRecipes: Array.isArray(parsed.unlockedRecipes)
           ? parsed.unlockedRecipes
           : clone(defaultSave.unlockedRecipes),
@@ -292,26 +290,6 @@
     return won.format(Math.max(0, Math.round(value)));
   }
 
-  function getReputation() {
-    return clampNumber(state.save.reputation ?? defaultSave.reputation, 0, 100);
-  }
-
-  function setReputation(value) {
-    state.save.reputation = clampNumber(value, 0, 100);
-  }
-
-  function adjustReputation(delta) {
-    if (!delta) {
-      return;
-    }
-    setReputation(getReputation() + delta);
-    saveGame();
-    if (state.running && getReputation() <= 0) {
-      showToast("평판이 바닥났습니다");
-      endDay("reputation");
-    }
-  }
-
   function spendMaterial(slot, amount) {
     state.stats.cost += amount;
     slot.cost += amount;
@@ -343,12 +321,101 @@
 
   function selectRecipe(recipeId) {
     if (!isUnlocked(recipeId)) {
-      openSheet("shopSheet");
-      showToast("상점에서 레시피를 해금할 수 있습니다");
+      showToast("영업 종료 후 상점에서 해금할 수 있습니다");
       return;
     }
     state.selectedRecipeId = recipeId;
     renderAll();
+  }
+
+  function ensureMusic() {
+    if (state.music.context || (!window.AudioContext && !window.webkitAudioContext)) {
+      return;
+    }
+
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    state.music.context = new AudioContextClass();
+    state.music.gain = state.music.context.createGain();
+    state.music.gain.gain.value = 0.05;
+    state.music.gain.connect(state.music.context.destination);
+  }
+
+  function playTone(frequency, duration, type = "sine", volume = 0.14) {
+    const { context, gain } = state.music;
+    if (!context || !gain || context.state !== "running") {
+      return;
+    }
+
+    const oscillator = context.createOscillator();
+    const noteGain = context.createGain();
+    const now = context.currentTime;
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency, now);
+    noteGain.gain.setValueAtTime(0.0001, now);
+    noteGain.gain.exponentialRampToValueAtTime(volume, now + 0.018);
+    noteGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    oscillator.connect(noteGain);
+    noteGain.connect(gain);
+    oscillator.start(now);
+    oscillator.stop(now + duration + 0.02);
+  }
+
+  function playMusicStep() {
+    if (!state.musicEnabled || state.paused) {
+      return;
+    }
+
+    const melody = [659, 784, 880, 784, 659, 587, 659, 523];
+    const bass = [196, 196, 220, 220, 174, 174, 196, 196];
+    const step = state.music.step % melody.length;
+    playTone(melody[step], 0.18, "triangle", step % 2 ? 0.1 : 0.13);
+    if (step % 2 === 0) {
+      playTone(bass[step], 0.24, "sine", 0.07);
+    }
+    state.music.step += 1;
+  }
+
+  function startMusic() {
+    if (!state.musicEnabled) {
+      return;
+    }
+    ensureMusic();
+    if (!state.music.context) {
+      return;
+    }
+    state.music.context.resume();
+    if (!state.music.timer) {
+      playMusicStep();
+      state.music.timer = window.setInterval(playMusicStep, 260);
+    }
+    updateMusicButton();
+  }
+
+  function stopMusic() {
+    if (state.music.timer) {
+      window.clearInterval(state.music.timer);
+      state.music.timer = 0;
+    }
+    if (state.music.context && state.music.context.state === "running") {
+      state.music.context.suspend();
+    }
+    updateMusicButton();
+  }
+
+  function toggleMusic() {
+    state.musicEnabled = !state.musicEnabled;
+    if (state.musicEnabled) {
+      startMusic();
+      showToast("BGM 켜짐");
+    } else {
+      stopMusic();
+      showToast("BGM 꺼짐");
+    }
+  }
+
+  function updateMusicButton() {
+    els.musicButton.classList.toggle("is-muted", !state.musicEnabled);
+    els.musicButton.setAttribute("aria-label", state.musicEnabled ? "배경음악 끄기" : "배경음악 켜기");
   }
 
   function setPaused(paused) {
@@ -357,6 +424,11 @@
     }
     state.paused = paused;
     els.pauseButton.setAttribute("aria-label", paused ? "계속하기" : "일시정지");
+    if (paused) {
+      stopMusic();
+    } else {
+      startMusic();
+    }
     showToast(paused ? "잠시 멈춤" : "영업 재개");
   }
 
@@ -388,7 +460,7 @@
       return;
     }
     if (slot.stage === "ready") {
-      serveSlot(slot);
+      collectSlot(slot);
       return;
     }
     if (slot.stage === "burnt") {
@@ -589,34 +661,139 @@
     return line;
   }
 
-  function serveSlot(slot) {
+  function findDisplayStockIndex(recipeId) {
+    return state.displayStock.findIndex((item) => item.recipeId === recipeId);
+  }
+
+  function collectSlot(slot) {
     const recipe = getRecipe(slot.recipeId);
-    const order = findMatchingOrder(recipe.id);
-    const perfect = slot.perfectFront && slot.readyAge <= READY_PERFECT_SECONDS;
-    const materialCost = slot.cost;
+    state.displayStock.push({
+      id: state.nextDisplayId,
+      recipeId: recipe.id,
+      perfect: slot.perfectFront && slot.readyAge <= READY_PERFECT_SECONDS,
+      cost: slot.cost
+    });
+    state.nextDisplayId += 1;
+    resetSlot(slot);
+    showToast(`${recipe.name}붕 진열 완료`);
+    renderAll();
+  }
+
+  function serveOrderFromDisplay(orderId) {
+    if (!state.running || state.paused) {
+      return;
+    }
+
+    const order = state.orders.find((item) => item.id === orderId);
+    if (!order) {
+      return;
+    }
+
+    const canServeAll = order.items.every((item) => {
+      const stockCount = state.displayStock.filter((stockItem) => stockItem.recipeId === item.recipeId).length;
+      return stockCount >= item.remaining;
+    });
+
+    if (!canServeAll) {
+      showToast("진열대에 주문한 붕어빵이 없습니다");
+      return;
+    }
+
+    let servedCount = 0;
+    let totalValue = 0;
+    let comboHit = false;
+    let completed = false;
+    const servedName = order.name;
+
+    order.items.forEach((item) => {
+      while (item.remaining > 0) {
+        const result = serveOneDisplayItem(item.recipeId, order);
+        if (!result) {
+          return;
+        }
+        servedCount += 1;
+        totalValue += result.value;
+        comboHit = comboHit || result.comboHit;
+        completed = result.completed;
+      }
+    });
+
+    if (servedCount <= 0) {
+      return;
+    }
+
+    state.maxCombo = Math.max(state.maxCombo, state.combo);
+    checkMissionRewards();
+    saveGame();
+    renderAll();
+    showToast(`${servedName} ${servedCount}개 전달${completed ? " · 주문 완료" : ""}${comboHit ? " · 콤보" : ""} +${money(totalValue)}`);
+  }
+
+  function serveDisplayItem(recipeId, orderId = null) {
+    if (!state.running || state.paused) {
+      return;
+    }
+
+    const stockIndex = findDisplayStockIndex(recipeId);
+    if (stockIndex < 0) {
+      return;
+    }
+
+    const stockItem = state.displayStock[stockIndex];
+    const recipe = getRecipe(stockItem.recipeId);
+    const order = orderId
+      ? state.orders.find((item) => item.id === orderId && item.items.some((orderItem) => orderItem.recipeId === recipe.id && orderItem.remaining > 0))
+      : findMatchingOrder(recipe.id);
+    if (!order) {
+      showToast(`${recipe.name}붕을 찾는 손님이 없습니다`);
+      return;
+    }
+
+    const result = serveOneDisplayItem(recipe.id, order);
+    if (!result) {
+      return;
+    }
+
+    state.maxCombo = Math.max(state.maxCombo, state.combo);
+    checkMissionRewards();
+    saveGame();
+    renderAll();
+    showToast(`${result.message} +${money(result.value)}`);
+  }
+
+  function serveOneDisplayItem(recipeId, order) {
+    const stockIndex = findDisplayStockIndex(recipeId);
+    if (stockIndex < 0 || !order) {
+      return null;
+    }
+
+    const stockItem = state.displayStock[stockIndex];
+    const recipe = getRecipe(stockItem.recipeId);
+    const target = order.items.find((item) => item.recipeId === recipe.id && item.remaining > 0);
+    if (!target) {
+      return null;
+    }
+
+    state.displayStock.splice(stockIndex, 1);
+    const perfect = stockItem.perfect;
+    const materialCost = stockItem.cost;
     let value = recipe.price * getServeBonus();
-    let message = "진열 판매";
+    let message = `${recipe.name} 전달`;
     let patienceRatio = 0;
     let comboQualified = false;
 
-    if (order) {
-      const profile = getCustomerType(order.type);
-      const target = order.items.find((item) => item.recipeId === recipe.id && item.remaining > 0);
-      patienceRatio = Math.max(0, order.patience / order.maxPatience);
-      value *= profile.pay;
-      value *= 1 + patienceRatio * 0.38 * profile.tip;
-      target.remaining -= 1;
-      message = `${order.name} ${recipe.name} 전달`;
-      if (getOrderTotalRemaining(order) <= 0) {
-        state.orders = state.orders.filter((item) => item.id !== order.id);
-        state.stats.orders += 1;
-        state.save.gems += profile.gems;
-        adjustReputation(profile.repReward);
-        message = `${order.name} 주문 완료`;
-      }
-    } else {
-      value *= 0.52;
-      state.combo = 1;
+    const profile = getCustomerType(order.type);
+    patienceRatio = Math.max(0, order.patience / order.maxPatience);
+    value *= profile.pay;
+    value *= 1 + patienceRatio * 0.38 * profile.tip;
+    target.remaining -= 1;
+    message = `${order.name} ${recipe.name} 전달`;
+    let completed = false;
+    if (getOrderTotalRemaining(order) <= 0) {
+      state.orders = state.orders.filter((item) => item.id !== order.id);
+      state.stats.orders += 1;
+      message = `${order.name} 주문 완료`;
+      completed = true;
     }
 
     if (perfect) {
@@ -630,7 +807,7 @@
       value *= state.combo;
       state.combo = Math.min(5, state.combo * 1.08 + 0.16);
       message = `${message} · 콤보`;
-    } else if (order) {
+    } else {
       state.combo = 1;
     }
 
@@ -638,12 +815,12 @@
     state.save.coins += Math.max(0, value - materialCost);
     state.revenue += value;
     state.stats.pieces += 1;
-    state.maxCombo = Math.max(state.maxCombo, state.combo);
-    resetSlot(slot);
-    checkMissionRewards();
-    showToast(`${message} +${money(value)}`);
-    saveGame();
-    renderAll();
+    return {
+      value,
+      message,
+      comboHit: comboQualified,
+      completed
+    };
   }
 
   function spawnOrder() {
@@ -685,11 +862,9 @@
       const drain = delta + (order.type === "trouble" ? 0 : delta * troubleDrain);
       order.patience -= drain;
       if (order.patience <= 0) {
-        const profile = getCustomerType(order.type);
         state.orders.splice(index, 1);
         state.stats.missed += 1;
         state.combo = 1;
-        adjustReputation(-profile.repPenalty);
         showToast(`${order.name} 손님이 떠났습니다`);
       }
     }
@@ -723,8 +898,7 @@
         id: `combo-${day}`,
         title: `콤보 x${Math.min(2.4, 1.4 + day * 0.12).toFixed(1)}`,
         meta: "최고 콤보",
-        reward: 2,
-        gem: true,
+        reward: 140 + day * 20,
         get: () => state.maxCombo,
         target: Math.min(2.4, 1.4 + day * 0.12)
       }
@@ -738,13 +912,8 @@
       }
       if (mission.get() >= mission.target) {
         state.save.claimedMissions[mission.id] = true;
-        if (mission.gem) {
-          state.save.gems += mission.reward;
-          showToast(`미션 보상 +${mission.reward}보석`);
-        } else {
-          state.save.coins += mission.reward;
-          showToast(`미션 보상 +${money(mission.reward)}`);
-        }
+        state.save.coins += mission.reward;
+        showToast(`미션 보상 +${money(mission.reward)}`);
       }
     });
   }
@@ -801,6 +970,8 @@
     state.selectedRecipeId = isUnlocked(state.selectedRecipeId) ? state.selectedRecipeId : "redbean";
     state.orders = [];
     state.orderRenderKey = "__reset__";
+    state.displayStock = [];
+    state.nextDisplayId = 1;
     state.slots = createSlots();
     state.grillRenderKey = "__reset__";
     state.nextOrderIn = 0.4;
@@ -811,7 +982,6 @@
     state.lastTick = performance.now();
     els.introScreen.classList.add("hidden");
     els.daySummary.classList.add("hidden");
-    closeSheet("shopSheet");
     closeSheet("missionsSheet");
     renderAll();
   }
@@ -824,6 +994,7 @@
   function startGame() {
     renderIntro();
     startNewDay();
+    startMusic();
   }
 
   function endDay(reason = "time") {
@@ -837,12 +1008,10 @@
     state.closedGoal = getGoal();
     state.closedReason = reason;
 
-    const hitGoal = reason !== "reputation" && state.revenue >= state.closedGoal;
+    const hitGoal = state.revenue >= state.closedGoal;
     state.closedBonus = hitGoal ? Math.round(120 + state.closedDay * 24) : 0;
     if (hitGoal) {
       state.save.coins += state.closedBonus;
-      state.save.gems += 3;
-      setReputation(getReputation() + 4);
     }
 
     state.save.bestRevenue = Math.max(state.save.bestRevenue, state.revenue);
@@ -885,6 +1054,7 @@
     renderHud();
     renderRecipes();
     renderOrders(false);
+    renderDisplayCase();
     renderGrill(false);
     renderShop();
     renderMissions();
@@ -902,15 +1072,11 @@
     const progress = Math.min(100, (state.revenue / goal) * 100);
     els.dayText.textContent = `DAY ${state.save.day}`;
     els.coinsText.textContent = money(state.revenue);
-    els.gemsText.textContent = compactMoney(state.save.gems);
-    els.reputationText.textContent = Math.round(getReputation());
     els.timerText.textContent = formatTime(state.timeLeft);
     els.goalLabel.textContent = `목표 ${money(goal)}`;
     els.goalFill.style.width = `${progress}%`;
     els.revenueText.textContent = money(state.revenue);
     els.comboText.textContent = `x${state.combo.toFixed(1)}`;
-    els.heatText.textContent = `열판 Lv.${getUpgradeLevel("heat")}`;
-    els.selectedRecipeText.textContent = `${getRecipe(state.selectedRecipeId).name}붕 선택`;
   }
 
   function renderRecipes() {
@@ -1041,6 +1207,53 @@
         `;
       })
       .join("");
+
+    els.orders.querySelectorAll(".customer-card").forEach((card) => {
+      card.setAttribute("role", "button");
+      card.setAttribute("tabindex", "0");
+      card.addEventListener("click", () => serveOrderFromDisplay(card.dataset.orderId));
+      card.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          serveOrderFromDisplay(card.dataset.orderId);
+        }
+      });
+    });
+  }
+
+  function renderDisplayCase() {
+    if (state.displayStock.length === 0) {
+      els.displayCase.innerHTML = `<span class="display-empty">진열대 비어있음</span>`;
+      return;
+    }
+
+    const grouped = recipes
+      .map((recipe) => {
+        const stock = state.displayStock.filter((item) => item.recipeId === recipe.id);
+        return {
+          recipe,
+          count: stock.length,
+          perfect: stock.some((item) => item.perfect)
+        };
+      })
+      .filter((item) => item.count > 0);
+
+    els.displayCase.innerHTML = grouped
+      .map(({ recipe, count, perfect }) => {
+        return `
+          <button class="display-item recipe-${recipe.id} ${perfect ? "perfect" : ""}" type="button" data-recipe="${recipe.id}" style="--recipe-color:${recipe.color}" aria-label="${recipe.name}붕 ${count}개">
+            <span class="display-fish" aria-hidden="true">
+              <span class="display-fish-sprite"></span>
+              <span class="filling-mark filling-${recipe.id}"></span>
+            </span>
+            <span class="display-count">x${count}</span>
+          </button>
+        `;
+      })
+      .join("");
+    els.displayCase.querySelectorAll(".display-item").forEach((button) => {
+      button.addEventListener("click", () => serveDisplayItem(button.dataset.recipe));
+    });
   }
 
   function getGrillRenderKey() {
@@ -1148,6 +1361,7 @@
   }
 
   function renderShop() {
+    els.shopCoinsText.textContent = compactMoney(state.save.coins);
     els.upgradeList.innerHTML = upgrades
       .map((upgrade) => {
         const level = getUpgradeLevel(upgrade.id);
@@ -1161,7 +1375,7 @@
               <span class="shop-title">${upgrade.name} Lv.${level}</span>
               <span class="shop-meta">${maxed ? "최대 레벨" : upgrade.meta}</span>
             </span>
-            <span class="shop-price">${maxed ? "MAX" : compactMoney(price)}</span>
+            <span class="shop-price">${maxed ? "MAX" : `<span class="shop-price-coin">₩</span>${compactMoney(price)}`}</span>
           </button>
         `;
       })
@@ -1182,7 +1396,7 @@
               <span class="shop-title">${recipe.name} 레시피</span>
               <span class="shop-meta">${unlocked ? "해금 완료" : `판매가 ${money(recipe.price)}`}</span>
             </span>
-            <span class="shop-price">${unlocked ? "OK" : compactMoney(recipe.unlockCost)}</span>
+            <span class="shop-price">${unlocked ? "OK" : `<span class="shop-price-coin">₩</span>${compactMoney(recipe.unlockCost)}`}</span>
           </button>
         `;
       })
@@ -1202,7 +1416,7 @@
         const value = mission.get();
         const progress = Math.min(100, (value / mission.target) * 100);
         const complete = state.save.claimedMissions[mission.id];
-        const reward = mission.gem ? `${mission.reward}보석` : money(mission.reward);
+        const reward = money(mission.reward);
         return `
           <article class="mission-item">
             <span>
@@ -1225,8 +1439,8 @@
   }
 
   function renderSummary(hitGoal) {
-    const bonusText = hitGoal ? `${money(state.closedBonus)} + 3보석` : "없음";
-    const statusText = state.closedReason === "reputation" ? "평판 붕괴" : hitGoal ? "목표 달성" : "목표 미달";
+    const bonusText = hitGoal ? money(state.closedBonus) : "없음";
+    const statusText = hitGoal ? "목표 달성" : "목표 미달";
     els.summaryStats.innerHTML = `
       <div><span>DAY</span><strong>${state.closedDay}</strong></div>
       <div><span>상태</span><strong>${statusText}</strong></div>
@@ -1235,11 +1449,22 @@
       <div><span>보너스</span><strong>${bonusText}</strong></div>
       <div><span>폐기손실</span><strong>${money(state.stats.waste)}</strong></div>
       <div><span>주문</span><strong>${state.stats.orders}건</strong></div>
-      <div><span>평판</span><strong>${Math.round(getReputation())}</strong></div>
       <div><span>최고 콤보</span><strong>x${state.maxCombo.toFixed(1)}</strong></div>
     `;
+    showSummaryResults();
     els.daySummary.classList.remove("hidden");
     renderHud();
+  }
+
+  function showSummaryResults() {
+    els.summaryResultsView.classList.remove("hidden");
+    els.summaryShopView.classList.add("hidden");
+  }
+
+  function showSummaryShop() {
+    renderShop();
+    els.summaryResultsView.classList.add("hidden");
+    els.summaryShopView.classList.remove("hidden");
   }
 
   function openSheet(id) {
@@ -1268,10 +1493,11 @@
 
   function bindEvents() {
     els.startGameButton.addEventListener("click", startGame);
-    els.shopButton.addEventListener("click", () => openSheet("shopSheet"));
     els.missionsButton.addEventListener("click", () => openSheet("missionsSheet"));
-    els.newDayButton.addEventListener("click", startNewDay);
+    els.musicButton.addEventListener("click", toggleMusic);
     els.pauseButton.addEventListener("click", () => setPaused(!state.paused));
+    els.summaryShopButton.addEventListener("click", showSummaryShop);
+    els.summaryBackButton.addEventListener("click", showSummaryResults);
     els.summaryButton.addEventListener("click", startNewDay);
     els.closeButtons.forEach((button) => {
       button.addEventListener("click", () => closeSheet(button.dataset.close));
@@ -1280,9 +1506,7 @@
 
   bindEvents();
   renderIntro();
-  renderHud();
-  renderRecipes();
-  renderGrill(false);
-  renderShop();
+  renderAll();
+  updateMusicButton();
   requestAnimationFrame(tick);
 })();
