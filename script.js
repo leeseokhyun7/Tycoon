@@ -2,6 +2,7 @@
   "use strict";
 
   const SAVE_KEY = "bungeoppang-snow-market-v6";
+  const RECIPE_UNLOCK_VERSION = 2;
   const DAY_SECONDS = 60;
   const SLOT_COUNT = 12;
   const MAX_ORDERS = 3;
@@ -13,11 +14,37 @@
   const FRONT_GOLDEN_MAX = 104;
   const FRONT_BURN_PROGRESS = 122;
   const READY_PERFECT_SECONDS = 3.2;
+  const AUDIO_ASSETS = {
+    bgm: "assets/sfx/bgm.mp3",
+    tap: "assets/sfx/tap.mp3",
+    cook: "assets/sfx/cook.mp3",
+    fill: "assets/sfx/fill.mp3",
+    flip: "assets/sfx/flip.mp3",
+    collect: "assets/sfx/collect.mp3",
+    serve: "assets/sfx/serve.mp3",
+    coin: "assets/sfx/coin.mp3",
+    burn: "assets/sfx/burn.mp3",
+    fail: "assets/sfx/fail.mp3",
+    buy: "assets/sfx/buy.mp3"
+  };
+  const IMAGE_ASSETS = {
+    world: "assets/skin/world.png",
+    uiButton: "assets/skin/ui-button.png",
+    uiPanel: "assets/skin/ui-panel.png",
+    uiDock: "assets/skin/ui-dock.png",
+    uiGrill: "assets/skin/ui-grill.png",
+    uiShop: "assets/skin/ui-shop.png",
+    bbangReady: "assets/skin/bbang-ready.png",
+    bbangRaw: "assets/skin/bbang-raw.png",
+    bbangBurnt: "assets/skin/bbang-burnt.png",
+    customer: "assets/skin/customer.png",
+    customers: Array.from({ length: 9 }, (_, index) => `assets/skin/customer-${index}.png`)
+  };
   const won = new Intl.NumberFormat("ko-KR");
 
   const recipes = [
     { id: "redbean", name: "팥", short: "팥", color: "#8b3f39", price: 38, cost: 12, unlockCost: 0 },
-    { id: "custard", name: "슈크림", short: "슈", color: "#e0a33a", price: 42, cost: 14, unlockCost: 0 },
+    { id: "custard", name: "슈크림", short: "슈", color: "#e0a33a", price: 42, cost: 14, unlockCost: 480 },
     { id: "cheese", name: "치즈", short: "치", color: "#f1bd35", price: 50, cost: 17, unlockCost: 900 },
     { id: "sweetpotato", name: "고구마", short: "고", color: "#a864d6", price: 58, cost: 20, unlockCost: 1300 },
     { id: "matcha", name: "말차", short: "말", color: "#4b9c63", price: 66, cost: 23, unlockCost: 1800 }
@@ -102,7 +129,8 @@
     coins: 0,
     day: 1,
     bestRevenue: 0,
-    unlockedRecipes: ["redbean", "custard"],
+    recipeUnlockVersion: RECIPE_UNLOCK_VERSION,
+    unlockedRecipes: ["redbean"],
     upgrades: {
       mold: 0,
       heat: 0,
@@ -126,6 +154,7 @@
     revenueText: document.querySelector("#revenueText"),
     orders: document.querySelector("#orders"),
     comboText: document.querySelector("#comboText"),
+    feedbackLayer: document.querySelector("#feedbackLayer"),
     displayCase: document.querySelector("#displayCase"),
     grill: document.querySelector("#grill"),
     recipes: document.querySelector("#recipes"),
@@ -171,6 +200,7 @@
     lastTick: performance.now(),
     lastRender: 0,
     lastCustomerSprite: -1,
+    lastCountdownCue: -1,
     stats: createStats(),
     missions: [],
     musicEnabled: true,
@@ -178,12 +208,73 @@
       context: null,
       gain: null,
       timer: 0,
-      step: 0
+      step: 0,
+      bgmAudio: null,
+      bgmFailed: false
+    },
+    feedback: {
+      lastByText: {}
+    },
+    audio: {
+      sfx: {},
+      failed: {}
     }
   };
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
+  }
+
+  function loadOptionalImage(path) {
+    return new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => resolve(true);
+      image.onerror = () => resolve(false);
+      image.src = path;
+    });
+  }
+
+  function setSkinImage(name, path) {
+    document.documentElement.style.setProperty(name, `url("${path}")`);
+  }
+
+  function activateAssetHooks() {
+    const hooks = [
+      ["--skin-world", IMAGE_ASSETS.world],
+      ["--skin-ui-button", IMAGE_ASSETS.uiButton],
+      ["--skin-ui-panel", IMAGE_ASSETS.uiPanel],
+      ["--skin-ui-dock", IMAGE_ASSETS.uiDock],
+      ["--skin-ui-grill", IMAGE_ASSETS.uiGrill],
+      ["--skin-ui-shop", IMAGE_ASSETS.uiShop],
+      ["--skin-bbang-ready", IMAGE_ASSETS.bbangReady],
+      ["--skin-bbang-raw", IMAGE_ASSETS.bbangRaw],
+      ["--skin-bbang-burnt", IMAGE_ASSETS.bbangBurnt]
+    ];
+
+    hooks.forEach(([name, path]) => {
+      loadOptionalImage(path).then((exists) => {
+        if (exists) {
+          setSkinImage(name, path);
+        }
+      });
+    });
+
+    loadOptionalImage(IMAGE_ASSETS.customer).then((exists) => {
+      if (!exists) {
+        return;
+      }
+      IMAGE_ASSETS.customers.forEach((path, index) => {
+        setSkinImage(`--skin-customer-${index}`, IMAGE_ASSETS.customer);
+      });
+    });
+
+    IMAGE_ASSETS.customers.forEach((path, index) => {
+      loadOptionalImage(path).then((exists) => {
+        if (exists) {
+          setSkinImage(`--skin-customer-${index}`, path);
+        }
+      });
+    });
   }
 
   function clampNumber(value, min, max) {
@@ -204,13 +295,18 @@
       const safeParsed = { ...parsed };
       delete safeParsed.gems;
       delete safeParsed.reputation;
+      const migratedUnlockedRecipes = Array.isArray(parsed.unlockedRecipes)
+        ? parsed.unlockedRecipes
+        : clone(defaultSave.unlockedRecipes);
+      const unlockedRecipes = parsed.recipeUnlockVersion === RECIPE_UNLOCK_VERSION
+        ? migratedUnlockedRecipes
+        : migratedUnlockedRecipes.filter((recipeId) => recipeId !== "custard");
 
       return {
         ...clone(defaultSave),
         ...safeParsed,
-        unlockedRecipes: Array.isArray(parsed.unlockedRecipes)
-          ? parsed.unlockedRecipes
-          : clone(defaultSave.unlockedRecipes),
+        recipeUnlockVersion: RECIPE_UNLOCK_VERSION,
+        unlockedRecipes: unlockedRecipes.length > 0 ? unlockedRecipes : clone(defaultSave.unlockedRecipes),
         upgrades: {
           ...clone(defaultSave.upgrades),
           ...(parsed.upgrades || {})
@@ -246,6 +342,7 @@
       progress: 0,
       readyAge: 0,
       perfectFront: false,
+      cueLevel: "",
       cost: 0
     }));
   }
@@ -280,6 +377,13 @@
 
   function getGoal() {
     return 260 + (state.save.day - 1) * 70;
+  }
+
+  function getMaxOrders() {
+    if (state.save.day <= 1) {
+      return 2;
+    }
+    return MAX_ORDERS;
   }
 
   function money(value) {
@@ -375,10 +479,31 @@
     state.music.step += 1;
   }
 
-  function startMusic() {
-    if (!state.musicEnabled) {
-      return;
+  function ensureBgmAudio() {
+    if (state.music.bgmAudio || state.music.bgmFailed) {
+      return state.music.bgmAudio;
     }
+
+    const audio = new Audio(AUDIO_ASSETS.bgm);
+    audio.loop = true;
+    audio.preload = "auto";
+    audio.volume = 0.32;
+    audio.addEventListener(
+      "error",
+      () => {
+        state.music.bgmFailed = true;
+        state.music.bgmAudio = null;
+        if (state.musicEnabled && state.running && !state.paused) {
+          startSynthMusic();
+        }
+      },
+      { once: true }
+    );
+    state.music.bgmAudio = audio;
+    return audio;
+  }
+
+  function startSynthMusic() {
     ensureMusic();
     if (!state.music.context) {
       return;
@@ -388,6 +513,27 @@
       playMusicStep();
       state.music.timer = window.setInterval(playMusicStep, 260);
     }
+  }
+
+  function startMusic() {
+    if (!state.musicEnabled) {
+      return;
+    }
+
+    const bgm = ensureBgmAudio();
+    if (bgm && !state.music.bgmFailed) {
+      const playPromise = bgm.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {
+          state.music.bgmFailed = true;
+          startSynthMusic();
+        });
+      }
+      updateMusicButton();
+      return;
+    }
+
+    startSynthMusic();
     updateMusicButton();
   }
 
@@ -396,10 +542,112 @@
       window.clearInterval(state.music.timer);
       state.music.timer = 0;
     }
+    if (state.music.bgmAudio) {
+      state.music.bgmAudio.pause();
+    }
     if (state.music.context && state.music.context.state === "running") {
       state.music.context.suspend();
     }
     updateMusicButton();
+  }
+
+  function getSfx(name) {
+    if (!AUDIO_ASSETS[name] || state.audio.failed[name]) {
+      return null;
+    }
+
+    if (!state.audio.sfx[name]) {
+      const audio = new Audio(AUDIO_ASSETS[name]);
+      audio.preload = "auto";
+      audio.volume = name === "fail" ? 0.42 : 0.58;
+      audio.addEventListener(
+        "error",
+        () => {
+          state.audio.failed[name] = true;
+          delete state.audio.sfx[name];
+        },
+        { once: true }
+      );
+      state.audio.sfx[name] = audio;
+    }
+
+    return state.audio.sfx[name];
+  }
+
+  function playSfx(name) {
+    if (!state.musicEnabled) {
+      return;
+    }
+
+    const audio = getSfx(name);
+    if (!audio) {
+      return;
+    }
+
+    audio.currentTime = 0;
+    const playPromise = audio.play();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch(() => {});
+    }
+  }
+
+  function vibrate(pattern) {
+    if (navigator.vibrate) {
+      navigator.vibrate(pattern);
+    }
+  }
+
+  function playCueTone(kind) {
+    if (!state.musicEnabled) {
+      return;
+    }
+    ensureMusic();
+    if (!state.music.context || state.music.context.state !== "running") {
+      return;
+    }
+    if (kind === "perfect") {
+      playTone(988, 0.08, "triangle", 0.12);
+      window.setTimeout(() => playTone(1319, 0.09, "triangle", 0.1), 55);
+      return;
+    }
+    if (kind === "warning") {
+      playTone(196, 0.1, "sawtooth", 0.08);
+      window.setTimeout(() => playTone(165, 0.1, "sawtooth", 0.07), 75);
+      return;
+    }
+    if (kind === "combo") {
+      playTone(784, 0.08, "square", 0.08);
+      window.setTimeout(() => playTone(1047, 0.1, "square", 0.07), 65);
+    }
+  }
+
+  function showFloatingFeedback(text, tone = "") {
+    if (!els.feedbackLayer) {
+      return;
+    }
+    const now = performance.now();
+    const lastShown = state.feedback.lastByText[text] || 0;
+    if (now - lastShown < 900) {
+      return;
+    }
+    state.feedback.lastByText[text] = now;
+    els.feedbackLayer.querySelectorAll(".feedback-pop").forEach((item) => item.remove());
+    const item = document.createElement("span");
+    item.className = `feedback-pop ${tone ? `feedback-${tone}` : ""}`;
+    item.textContent = text;
+    item.style.setProperty("--x", "0px");
+    els.feedbackLayer.appendChild(item);
+    window.setTimeout(() => item.remove(), 900);
+  }
+
+  function pulseComboRibbon() {
+    const ribbon = els.comboText.closest(".combo-ribbon");
+    if (!ribbon) {
+      return;
+    }
+    ribbon.classList.remove("combo-pop");
+    void ribbon.offsetWidth;
+    ribbon.classList.add("combo-pop");
   }
 
   function toggleMusic() {
@@ -438,6 +686,8 @@
     }
 
     if (index >= getCapacity()) {
+      playSfx("fail");
+      vibrate(18);
       showToast("상점에서 붕어틀을 확장하세요");
       return;
     }
@@ -456,6 +706,8 @@
       return;
     }
     if (slot.stage === "back") {
+      playSfx("fail");
+      vibrate(12);
       showToast("뒷면이 익는 중입니다");
       return;
     }
@@ -469,17 +721,21 @@
   }
 
   function pourBatter(slot) {
+    playSfx("cook");
     spendMaterial(slot, BATTER_COST);
     slot.stage = "batter";
     slot.recipeId = null;
     slot.progress = 0;
     slot.readyAge = 0;
     slot.perfectFront = false;
+    slot.cueLevel = "";
     renderAll();
   }
 
   function addFilling(slot) {
     if (slot.progress < BATTER_SET_PROGRESS) {
+      playSfx("fail");
+      vibrate(12);
       showToast("반죽이 아직 자리 잡는 중입니다");
       return;
     }
@@ -491,17 +747,22 @@
     }
 
     const recipe = getRecipe(state.selectedRecipeId);
+    playSfx("fill");
+    vibrate(8);
     spendMaterial(slot, recipe.cost);
     slot.stage = "front";
     slot.recipeId = state.selectedRecipeId;
     slot.progress = 0;
     slot.readyAge = 0;
     slot.perfectFront = false;
+    slot.cueLevel = "";
     renderAll();
   }
 
   function flipSlot(slot) {
     if (slot.progress < FRONT_FLIP_PROGRESS) {
+      playSfx("fail");
+      vibrate(12);
       showToast("조금 더 익혀주세요");
       return;
     }
@@ -511,10 +772,56 @@
       renderAll();
       return;
     }
+    playSfx("flip");
     slot.perfectFront = slot.progress >= FRONT_GOLDEN_MIN && slot.progress <= FRONT_GOLDEN_MAX;
+    vibrate(slot.perfectFront ? [8, 24, 8] : 10);
+    if (slot.perfectFront) {
+      showToast("딱 좋은 타이밍!");
+    }
     slot.stage = "back";
     slot.progress = 0;
+    slot.cueLevel = "";
     renderGrill();
+  }
+
+  function getSlotCueLevel(slot) {
+    if (slot.stage === "front") {
+      if (slot.progress > FRONT_GOLDEN_MAX) {
+        return "warning";
+      }
+      if (slot.progress >= FRONT_GOLDEN_MIN) {
+        return "perfect";
+      }
+    }
+    if (slot.stage === "back") {
+      if (slot.progress >= 96) {
+        return "warning";
+      }
+      if (slot.progress >= 88) {
+        return "perfect";
+      }
+    }
+    if (slot.stage === "ready") {
+      return slot.readyAge <= READY_PERFECT_SECONDS ? "perfect" : "warning";
+    }
+    return "";
+  }
+
+  function updateSlotCue(slot) {
+    const cue = getSlotCueLevel(slot);
+    if (!cue || slot.cueLevel === cue) {
+      return;
+    }
+    slot.cueLevel = cue;
+    if (cue === "perfect") {
+      playCueTone("perfect");
+      showFloatingFeedback("황금 타이밍", "perfect");
+    }
+    if (cue === "warning") {
+      playCueTone("warning");
+      showFloatingFeedback("타기 직전", "warning");
+      vibrate(12);
+    }
   }
 
   function updateSlots(delta) {
@@ -551,11 +858,15 @@
           burnSlot(slot);
         }
       }
+
+      updateSlotCue(slot);
     });
   }
 
   function burnSlot(slot) {
     if (slot.stage !== "burnt") {
+      playSfx("burn");
+      vibrate([24, 32, 24]);
       state.stats.burned += 1;
       state.stats.waste += slot.cost;
       state.combo = 1;
@@ -563,9 +874,12 @@
     slot.stage = "burnt";
     slot.progress = 100;
     slot.readyAge = 0;
+    slot.cueLevel = "";
   }
 
   function cleanBurnt(slot) {
+    playSfx("tap");
+    vibrate(10);
     resetSlot(slot);
     showToast("탄 붕어빵을 치웠습니다");
     renderAll();
@@ -577,6 +891,7 @@
     slot.progress = 0;
     slot.readyAge = 0;
     slot.perfectFront = false;
+    slot.cueLevel = "";
     slot.cost = 0;
   }
 
@@ -651,32 +966,56 @@
       .join(", ");
   }
 
-  function getOrderSpeech(order) {
-    const line = `${getOrderLine(order, true)} 주세요!`;
+  function getCustomerFarewell(order, perfect, comboHit) {
+    if (comboHit) {
+      return "와, 손이 빠르네요!";
+    }
+    if (perfect) {
+      return "겉바속촉 최고예요!";
+    }
     if (order.type === "vip") {
-      return `${line} 잘 부탁해요`;
+      return "다음에도 들를게요.";
+    }
+    if (order.type === "rush") {
+      return "살았다, 고마워요!";
     }
     if (order.type === "trouble") {
-      return `${line} 빨리요`;
+      return "흠, 이 정도면 됐네요.";
     }
-    return line;
+
+    const lines = ["잘 먹겠습니다!", "따끈해서 좋아요!", "또 올게요!", "냄새가 좋네요!"];
+    return lines[Math.floor(Math.random() * lines.length)];
   }
 
   function findDisplayStockIndex(recipeId) {
     return state.displayStock.findIndex((item) => item.recipeId === recipeId);
   }
 
+  function countDisplayStock(recipeId) {
+    return state.displayStock.filter((item) => item.recipeId === recipeId).length;
+  }
+
+  function canFulfillOrder(order) {
+    return order.items.every((item) => countDisplayStock(item.recipeId) >= item.remaining);
+  }
+
   function collectSlot(slot) {
     const recipe = getRecipe(slot.recipeId);
+    const perfect = slot.perfectFront && slot.readyAge <= READY_PERFECT_SECONDS;
+    playSfx("collect");
+    vibrate(perfect ? [8, 22, 8] : 10);
     state.displayStock.push({
       id: state.nextDisplayId,
       recipeId: recipe.id,
-      perfect: slot.perfectFront && slot.readyAge <= READY_PERFECT_SECONDS,
+      perfect,
       cost: slot.cost
     });
     state.nextDisplayId += 1;
     resetSlot(slot);
-    showToast(`${recipe.name}붕 진열 완료`);
+    if (perfect) {
+      playCueTone("perfect");
+    }
+    showToast(`${recipe.name}붕 ${perfect ? "황금 진열!" : "진열 완료"}`);
     renderAll();
   }
 
@@ -690,12 +1029,10 @@
       return;
     }
 
-    const canServeAll = order.items.every((item) => {
-      const stockCount = state.displayStock.filter((stockItem) => stockItem.recipeId === item.recipeId).length;
-      return stockCount >= item.remaining;
-    });
+    const canServeAll = canFulfillOrder(order);
 
     if (!canServeAll) {
+      playSfx("fail");
       showToast("진열대에 주문한 붕어빵이 없습니다");
       return;
     }
@@ -724,6 +1061,8 @@
     }
 
     state.maxCombo = Math.max(state.maxCombo, state.combo);
+    playSfx(completed ? "coin" : "serve");
+    vibrate(completed ? [8, 20, 8] : 8);
     checkMissionRewards();
     saveGame();
     renderAll();
@@ -746,6 +1085,7 @@
       ? state.orders.find((item) => item.id === orderId && item.items.some((orderItem) => orderItem.recipeId === recipe.id && orderItem.remaining > 0))
       : findMatchingOrder(recipe.id);
     if (!order) {
+      playSfx("fail");
       showToast(`${recipe.name}붕을 찾는 손님이 없습니다`);
       return;
     }
@@ -756,6 +1096,8 @@
     }
 
     state.maxCombo = Math.max(state.maxCombo, state.combo);
+    playSfx(result.completed ? "coin" : "serve");
+    vibrate(result.completed ? [8, 20, 8] : 8);
     checkMissionRewards();
     saveGame();
     renderAll();
@@ -782,6 +1124,7 @@
     let message = `${recipe.name} 전달`;
     let patienceRatio = 0;
     let comboQualified = false;
+    let farewell = "";
 
     const profile = getCustomerType(order.type);
     patienceRatio = Math.max(0, order.patience / order.maxPatience);
@@ -791,7 +1134,6 @@
     message = `${order.name} ${recipe.name} 전달`;
     let completed = false;
     if (getOrderTotalRemaining(order) <= 0) {
-      state.orders = state.orders.filter((item) => item.id !== order.id);
       state.stats.orders += 1;
       message = `${order.name} 주문 완료`;
       completed = true;
@@ -808,11 +1150,21 @@
       value *= state.combo;
       state.combo = Math.min(3, state.combo * 1.04 + 0.08);
       message = `${message} · 콤보`;
+      playCueTone("combo");
+      showFloatingFeedback(`콤보 x${state.combo.toFixed(1)}`, "combo");
+      pulseComboRibbon();
     } else {
       state.combo = 1;
     }
 
     value = Math.round(value);
+    if (completed) {
+      farewell = getCustomerFarewell(order, perfect, comboQualified);
+      order.departing = true;
+      order.farewell = farewell;
+      order.departingAge = 0;
+      order.departingDuration = 1.25;
+    }
     state.save.coins += Math.max(0, value - materialCost);
     state.revenue += value;
     state.stats.pieces += 1;
@@ -820,12 +1172,13 @@
       value,
       message,
       comboHit: comboQualified,
-      completed
+      completed,
+      farewell
     };
   }
 
   function spawnOrder() {
-    if (state.orders.length >= MAX_ORDERS) {
+    if (state.orders.length >= getMaxOrders()) {
       return;
     }
 
@@ -854,18 +1207,48 @@
       rush: type === "rush",
       spriteIndex
     });
+    playSfx("tap");
+    vibrate(6);
+    if (type === "vip") {
+      showFloatingFeedback("귀빈 방문", "combo");
+    } else if (type === "trouble") {
+      showFloatingFeedback("진상 주의", "warning");
+    }
+  }
+
+  function updateCountdownCue() {
+    if (!state.running || state.paused) {
+      return;
+    }
+    const second = Math.ceil(state.timeLeft);
+    if (![5, 3, 1].includes(second) || state.lastCountdownCue === second) {
+      return;
+    }
+    state.lastCountdownCue = second;
+    playCueTone("warning");
+    showFloatingFeedback(`${second}초`, "warning");
+    vibrate(8);
   }
 
   function updateOrders(delta) {
-    const troubleDrain = state.orders.reduce((total, order) => total + getCustomerType(order.type).drain, 0);
+    const troubleDrain = state.orders.reduce((total, order) => total + (order.departing ? 0 : getCustomerType(order.type).drain), 0);
     for (let index = state.orders.length - 1; index >= 0; index -= 1) {
       const order = state.orders[index];
+      if (order.departing) {
+        order.departingAge += delta;
+        if (order.departingAge >= order.departingDuration) {
+          state.orders.splice(index, 1);
+        }
+        continue;
+      }
       const drain = delta + (order.type === "trouble" ? 0 : delta * troubleDrain);
       order.patience -= drain;
       if (order.patience <= 0) {
         state.orders.splice(index, 1);
         state.stats.missed += 1;
         state.combo = 1;
+        playSfx("fail");
+        vibrate([18, 28, 18]);
         showToast(`${order.name} 손님이 떠났습니다`);
       }
     }
@@ -914,6 +1297,7 @@
       if (mission.get() >= mission.target) {
         state.save.claimedMissions[mission.id] = true;
         state.save.coins += mission.reward;
+        playSfx("coin");
         showToast(`미션 보상 +${money(mission.reward)}`);
       }
     });
@@ -928,12 +1312,14 @@
 
     const price = getUpgradePrice(upgrade, level);
     if (state.save.coins < price) {
+      playSfx("fail");
       showToast("코인이 부족합니다");
       return;
     }
 
     state.save.coins -= price;
     state.save.upgrades[upgradeId] = level + 1;
+    playSfx("buy");
     showToast(`${upgrade.name} Lv.${level + 1}`);
     saveGame();
     renderAll();
@@ -950,12 +1336,14 @@
       return;
     }
     if (state.save.coins < recipe.unlockCost) {
+      playSfx("fail");
       showToast("코인이 부족합니다");
       return;
     }
     state.save.coins -= recipe.unlockCost;
     state.save.unlockedRecipes.push(recipe.id);
     state.selectedRecipeId = recipe.id;
+    playSfx("buy");
     showToast(`${recipe.name} 레시피 해금`);
     saveGame();
     renderAll();
@@ -978,6 +1366,7 @@
     state.nextOrderIn = 0.4;
     state.combo = 1;
     state.maxCombo = 1;
+    state.lastCountdownCue = -1;
     state.stats = createStats();
     state.missions = buildMissions();
     state.lastTick = performance.now();
@@ -1027,6 +1416,7 @@
 
     if (state.running && !state.paused) {
       state.timeLeft = Math.max(0, state.timeLeft - delta);
+      updateCountdownCue();
       state.nextOrderIn -= delta;
 
       if (state.nextOrderIn <= 0) {
@@ -1078,6 +1468,38 @@
     els.goalFill.style.width = `${progress}%`;
     els.revenueText.textContent = money(state.revenue);
     els.comboText.textContent = `x${state.combo.toFixed(1)}`;
+    renderMissionButtonState();
+    applyTimePressure();
+    applyProgressionTheme();
+  }
+
+  function applyTimePressure() {
+    const root = document.querySelector(".phone-game");
+    if (!root) {
+      return;
+    }
+    root.classList.toggle("time-warning", state.running && state.timeLeft <= 10);
+    root.classList.toggle("time-critical", state.running && state.timeLeft <= 5);
+  }
+
+  function renderMissionButtonState() {
+    const attentionCount = state.missions.filter((mission) => {
+      const progress = mission.get() / mission.target;
+      return state.save.claimedMissions[mission.id] || progress >= 0.8;
+    }).length;
+    els.missionsButton.classList.toggle("has-reward", attentionCount > 0);
+    els.missionsButton.dataset.ready = attentionCount > 0 ? String(attentionCount) : "";
+  }
+
+  function applyProgressionTheme() {
+    const root = document.querySelector(".phone-game");
+    if (!root) {
+      return;
+    }
+    ["mold", "heat", "wrap", "charm", "display"].forEach((id) => {
+      root.dataset[`${id}Lv`] = String(getUpgradeLevel(id));
+      root.classList.toggle(`has-${id}`, getUpgradeLevel(id) > 0);
+    });
   }
 
   function renderRecipes() {
@@ -1102,25 +1524,51 @@
   }
 
   function getOrdersRenderKey() {
-    return state.orders
+    const activeKey = state.orders
       .map((order) => {
         const itemsKey = order.items
           .map((item) => `${item.recipeId}:${item.remaining}`)
           .join(",");
-        return `${order.id}:${itemsKey}:${order.type}:${order.rush ? 1 : 0}`;
+        return `${order.id}:${itemsKey}:${order.type}:${order.rush ? 1 : 0}:${order.departing ? order.farewell : ""}`;
       })
       .join("|");
+    return activeKey;
   }
 
   function updateOrderPatienceBars() {
     state.orders.forEach((order) => {
-      const bar = els.orders.querySelector(`[data-order-id="${order.id}"] .patience-bar span`);
+      if (order.departing) {
+        return;
+      }
+      const card = els.orders.querySelector(`[data-order-id="${order.id}"]`);
+      const bar = card?.querySelector(".patience-bar span");
       if (!bar) {
         return;
       }
       const patience = Math.max(0, (order.patience / order.maxPatience) * 100);
       bar.style.setProperty("--patience", `${patience}%`);
+      card.classList.toggle("urgent", patience <= 34);
+      card.classList.toggle("critical", patience <= 16);
+      card.classList.toggle("mood-happy", patience > 62);
+      card.classList.toggle("mood-waiting", patience <= 62 && patience > 34);
+      card.classList.toggle("mood-angry", patience <= 34);
+      card.classList.toggle("can-serve", canFulfillOrder(order));
+      card.querySelectorAll(".order-chip[data-recipe-id]").forEach((chip) => {
+        const recipeId = chip.dataset.recipeId;
+        const remaining = Number(chip.dataset.remaining || 0);
+        chip.classList.toggle("ready", countDisplayStock(recipeId) >= remaining);
+      });
     });
+  }
+
+  function getCustomerMoodClass(patience) {
+    if (patience <= 34) {
+      return "mood-angry";
+    }
+    if (patience <= 62) {
+      return "mood-waiting";
+    }
+    return "mood-happy";
   }
 
   function getSlotProgressPercent(slot) {
@@ -1155,11 +1603,43 @@
     return slot.stage;
   }
 
+  function getSlotTempoClass(slot) {
+    if (slot.stage === "batter" && slot.progress >= BATTER_SET_PROGRESS) {
+      return "slot-actionable";
+    }
+    if (slot.stage === "front") {
+      if (slot.progress >= FRONT_GOLDEN_MIN && slot.progress <= FRONT_GOLDEN_MAX) {
+        return "slot-perfect";
+      }
+      if (slot.progress > FRONT_GOLDEN_MAX) {
+        return "slot-danger";
+      }
+      if (slot.progress >= FRONT_FLIP_PROGRESS) {
+        return "slot-actionable";
+      }
+    }
+    if (slot.stage === "back" && slot.progress >= 88) {
+      return "slot-perfect";
+    }
+    if (slot.stage === "ready") {
+      return slot.readyAge <= READY_PERFECT_SECONDS ? "slot-perfect" : "slot-actionable";
+    }
+    if (slot.stage === "burnt") {
+      return "slot-danger";
+    }
+    return "";
+  }
+
   function updateSlotBandClass(button, slot) {
     Array.from(button.classList)
       .filter((className) => className.startsWith("band-"))
       .forEach((className) => button.classList.remove(className));
+    button.classList.remove("slot-actionable", "slot-perfect", "slot-danger");
     button.classList.add(`band-${getSlotBand(slot)}`);
+    const tempoClass = getSlotTempoClass(slot);
+    if (tempoClass) {
+      button.classList.add(tempoClass);
+    }
   }
 
   function renderOrders(force = false) {
@@ -1178,15 +1658,19 @@
 
     els.orders.innerHTML = state.orders
       .map((order) => {
-        const primaryRecipe = getRecipe(order.items[0].recipeId);
+        const activeItems = order.items.filter((item) => item.remaining > 0);
+        const primaryRecipe = getRecipe((activeItems[0] || order.items[0]).recipeId);
         const profile = getCustomerType(order.type);
         const patience = Math.max(0, (order.patience / order.maxPatience) * 100);
-        const itemChips = order.items
-          .filter((item) => item.remaining > 0)
+        const pressureClass = patience <= 16 ? "critical" : patience <= 34 ? "urgent" : "";
+        const moodClass = getCustomerMoodClass(patience);
+        const readyClass = canFulfillOrder(order) ? "can-serve" : "";
+        const itemChips = activeItems
           .map((item) => {
             const recipe = getRecipe(item.recipeId);
+            const chipReady = countDisplayStock(recipe.id) >= item.remaining;
             return `
-              <span class="order-chip recipe-${recipe.id}" style="--recipe-color:${recipe.color}" title="${recipe.name}붕 ${item.remaining}개">
+              <span class="order-chip recipe-${recipe.id} ${chipReady ? "ready" : ""}" data-recipe-id="${recipe.id}" data-remaining="${item.remaining}" style="--recipe-color:${recipe.color}" title="${recipe.name}붕 ${item.remaining}개">
                 <span class="mini-fish" aria-hidden="true">
                   <span class="filling-mark filling-${recipe.id}"></span>
                 </span>
@@ -1195,21 +1679,32 @@
             `;
           })
           .join("");
+        if (order.departing) {
+          return `
+            <article class="customer-card customer-${order.type} departing" data-order-id="${order.id}" style="--recipe-color:${primaryRecipe.color}; --bubble:${order.type === "rush" ? "#ff647d" : primaryRecipe.color}">
+              <div class="speech">
+                ${profile.label ? `<span class="customer-tag">${profile.label}</span>` : ""}
+                <span class="speech-text farewell-text">${order.farewell}</span>
+              </div>
+              <div class="person sprite-${order.spriteIndex}" aria-label="${order.name} 퇴장"></div>
+            </article>
+          `;
+        }
         return `
-          <article class="customer-card customer-${order.type}" data-order-id="${order.id}" style="--recipe-color:${primaryRecipe.color}; --bubble:${order.type === "rush" ? "#ff647d" : primaryRecipe.color}">
+          <article class="customer-card customer-${order.type} ${pressureClass} ${moodClass} ${readyClass}" data-order-id="${order.id}" style="--recipe-color:${primaryRecipe.color}; --bubble:${order.type === "rush" ? "#ff647d" : primaryRecipe.color}">
             <div class="speech">
               ${profile.label ? `<span class="customer-tag">${profile.label}</span>` : ""}
-              <span class="speech-text">${getOrderSpeech(order)}</span>
+              <span class="serve-ready-label" aria-hidden="true">서빙</span>
               <span class="order-chips" aria-hidden="true">${itemChips}</span>
+              <div class="patience-bar" aria-hidden="true"><span style="--patience:${patience}%"></span></div>
             </div>
             <div class="person sprite-${order.spriteIndex}" aria-label="${order.name} ${getOrderLine(order, true)} 주문"></div>
-            <div class="patience-bar" aria-hidden="true"><span style="--patience:${patience}%"></span></div>
           </article>
         `;
       })
       .join("");
 
-    els.orders.querySelectorAll(".customer-card").forEach((card) => {
+    els.orders.querySelectorAll(".customer-card[data-order-id]:not(.departing)").forEach((card) => {
       card.setAttribute("role", "button");
       card.setAttribute("tabindex", "0");
       card.addEventListener("click", () => serveOrderFromDisplay(card.dataset.orderId));
@@ -1260,16 +1755,16 @@
   function getGrillRenderKey() {
     const capacity = getCapacity();
     return state.slots
+      .slice(0, capacity)
       .map((slot, index) => {
-        const locked = index >= capacity ? 1 : 0;
-        return `${locked}:${slot.stage}:${slot.recipeId || ""}`;
+        return `${index}:${slot.stage}:${slot.recipeId || ""}`;
       })
       .join("|");
   }
 
   function updateGrillProgress() {
     const capacity = getCapacity();
-    state.slots.forEach((slot, index) => {
+    state.slots.slice(0, capacity).forEach((slot, index) => {
       const button = els.grill.querySelector(`[data-index="${index}"]`);
       if (!button) {
         return;
@@ -1277,7 +1772,7 @@
 
       const label = button.querySelector(".slot-label");
       if (label) {
-        label.textContent = getSlotLabel(slot, index >= capacity);
+        label.textContent = getSlotLabel(slot, false);
       }
 
       updateSlotBandClass(button, slot);
@@ -1300,14 +1795,11 @@
     state.grillRenderKey = nextKey;
     const capacity = getCapacity();
     els.grill.innerHTML = state.slots
+      .slice(0, capacity)
       .map((slot, index) => {
-        const locked = index >= capacity;
         const recipe = slot.recipeId ? getRecipe(slot.recipeId) : null;
-        const hasFish = slot.stage !== "empty" && !locked;
+        const hasFish = slot.stage !== "empty";
         const classes = ["mold-slot", slot.stage];
-        if (locked) {
-          classes.push("locked");
-        }
         if (hasFish) {
           classes.push("has-fish");
         }
@@ -1315,16 +1807,19 @@
           classes.push(`recipe-${recipe.id}`);
         }
         classes.push(`band-${getSlotBand(slot)}`);
+        const tempoClass = getSlotTempoClass(slot);
+        if (tempoClass) {
+          classes.push(tempoClass);
+        }
         const progress = getSlotProgressPercent(slot);
         return `
-          <button class="${classes.join(" ")}" type="button" data-index="${index}" aria-label="${getSlotLabel(slot, locked)}" style="--recipe-color:${recipe ? recipe.color : "#8b3f39"}">
-            <span class="slot-label">${getSlotLabel(slot, locked)}</span>
+          <button class="${classes.join(" ")}" type="button" data-index="${index}" aria-label="${getSlotLabel(slot, false)}" style="--recipe-color:${recipe ? recipe.color : "#8b3f39"}">
+            <span class="slot-label">${getSlotLabel(slot, false)}</span>
             <span class="fish" aria-hidden="true">
               <span class="fish-sprite"></span>
             </span>
             ${recipe ? `<span class="filling-badge filling-${recipe.id}" title="${recipe.name}붕" aria-label="${recipe.name}붕"></span>` : ""}
             <span class="slot-progress" aria-hidden="true"><span style="--progress:${progress}%"></span></span>
-            <span class="lock-mark" aria-hidden="true">＋</span>
           </button>
         `;
       })
@@ -1337,7 +1832,7 @@
 
   function getSlotLabel(slot, locked) {
     if (locked) {
-      return "확장";
+      return "잠김";
     }
     if (slot.stage === "batter") {
       return slot.progress >= BATTER_SET_PROGRESS ? "속넣기" : "반죽";
@@ -1439,22 +1934,76 @@
     return String(Math.floor(value));
   }
 
+  function getDayRating(hitGoal) {
+    const goalScore = Math.min(1.35, state.revenue / Math.max(1, state.closedGoal));
+    const perfectRatio = state.stats.pieces > 0 ? state.stats.perfect / state.stats.pieces : 0;
+    const mistakePenalty = state.stats.missed * 0.16 + state.stats.burned * 0.07;
+    const comboScore = Math.min(1, state.maxCombo / 2.4);
+    const score = goalScore * 0.55 + perfectRatio * 0.22 + comboScore * 0.23 - mistakePenalty;
+
+    if (hitGoal && score >= 0.92) {
+      return "손맛 최고";
+    }
+    if (hitGoal && score >= 0.72) {
+      return "좋은 장사";
+    }
+    if (score >= 0.52) {
+      return "아슬아슬";
+    }
+    return "다시 도전";
+  }
+
   function renderSummary(hitGoal) {
-    const bonusText = hitGoal ? money(state.closedBonus) : "없음";
     const statusText = hitGoal ? "목표 달성" : "목표 미달";
+    const summaryItems = [
+      ["DAY", state.closedDay, "plain"],
+      ["상태", statusText, "text"],
+      ["평가", getDayRating(hitGoal), "text"],
+      ["매출", state.revenue, "money"],
+      ["재료비", state.stats.cost, "money"],
+      ["보너스", hitGoal ? state.closedBonus : 0, "money"],
+      ["폐기손실", state.stats.waste, "money"],
+      ["주문", state.stats.orders, "plain"],
+      ["최고 콤보", state.maxCombo, "combo"]
+    ];
     els.summaryStats.innerHTML = `
-      <div><span>DAY</span><strong>${state.closedDay}</strong></div>
-      <div><span>상태</span><strong>${statusText}</strong></div>
-      <div><span>매출</span><strong>${money(state.revenue)}</strong></div>
-      <div><span>재료비</span><strong>${money(state.stats.cost)}</strong></div>
-      <div><span>보너스</span><strong>${bonusText}</strong></div>
-      <div><span>폐기손실</span><strong>${money(state.stats.waste)}</strong></div>
-      <div><span>주문</span><strong>${state.stats.orders}건</strong></div>
-      <div><span>최고 콤보</span><strong>x${state.maxCombo.toFixed(1)}</strong></div>
+      ${summaryItems
+        .map(([label, value, format]) => {
+          const text = format === "money" ? money(value) : format === "combo" ? `x${Number(value).toFixed(1)}` : format === "text" ? value : String(value);
+          const countAttrs = format === "text" ? "" : ` data-count="${Number(value)}" data-format="${format}"`;
+          return `<div><span>${label}</span><strong${countAttrs}>${text}</strong></div>`;
+        })
+        .join("")}
     `;
+    animateSummaryCounts();
     showSummaryResults();
     els.daySummary.classList.remove("hidden");
     renderHud();
+  }
+
+  function animateSummaryCounts() {
+    els.summaryStats.querySelectorAll("[data-count]").forEach((node) => {
+      const target = Number(node.dataset.count || 0);
+      const format = node.dataset.format || "plain";
+      const start = performance.now();
+      const duration = 650;
+      const draw = (now) => {
+        const ratio = Math.min(1, (now - start) / duration);
+        const eased = 1 - Math.pow(1 - ratio, 3);
+        const value = target * eased;
+        if (format === "money") {
+          node.textContent = money(value);
+        } else if (format === "combo") {
+          node.textContent = `x${value.toFixed(1)}`;
+        } else {
+          node.textContent = String(Math.round(value));
+        }
+        if (ratio < 1) {
+          requestAnimationFrame(draw);
+        }
+      };
+      requestAnimationFrame(draw);
+    });
   }
 
   function showSummaryResults() {
@@ -1505,6 +2054,7 @@
     });
   }
 
+  activateAssetHooks();
   bindEvents();
   renderIntro();
   renderAll();

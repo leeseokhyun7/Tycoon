@@ -31,7 +31,7 @@
         <div class="snow-layer snow-b" aria-hidden="true"></div>
 
         <header class="game-hud">
-          <div class="title-lockup">
+          <div class="title-lockup hud-skin hud-title-skin">
             <img src="assets/shop-mark.svg" width="52" height="52" alt="" />
             <div>
               <span id="dayText" class="day-chip">DAY 1</span>
@@ -55,14 +55,14 @@
         </header>
 
         <section class="resource-board" aria-label="재화와 목표">
-          <div class="resource-pill coin-pill">
+          <div class="resource-pill coin-pill hud-skin hud-sales-skin">
             <span class="coin-icon" aria-hidden="true">₩</span>
             <span class="resource-copy">
               <small>매출</small>
               <strong id="coinsText">0원</strong>
             </span>
           </div>
-          <div class="resource-pill time-pill">
+          <div class="resource-pill time-pill hud-skin hud-time-skin">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="12" r="8" />
               <path d="M12 7v5l3 2" />
@@ -72,7 +72,14 @@
               <strong id="timerText">01:00</strong>
             </span>
           </div>
-          <div class="goal-track">
+          <button id="missionsButton" class="mission-pill nav-button hud-skin" type="button" aria-label="미션">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 3h9l3 3v15H6V3Z" />
+              <path d="M9 12h6M9 16h4" />
+            </svg>
+            <span>미션</span>
+          </button>
+          <div class="goal-track hud-skin hud-goal-skin">
             <div class="goal-copy">
               <span id="goalLabel">목표 0원</span>
               <strong id="revenueText">0원</strong>
@@ -92,6 +99,7 @@
             <span>COMBO</span>
             <strong id="comboText">x1.0</strong>
           </div>
+          <div id="feedbackLayer" class="feedback-layer" aria-hidden="true"></div>
           <div id="displayCase" class="display-case" aria-label="완성 붕어빵 진열대"></div>
           <div class="grill-card">
             <div id="grill" class="grill-grid" aria-label="붕어빵 조리판"></div>
@@ -101,15 +109,6 @@
 
       <section class="control-dock" aria-label="조작 패널">
         <div id="recipes" class="recipe-strip" aria-label="속재료 선택"></div>
-        <nav class="nav-row" aria-label="관리 메뉴">
-          <button id="missionsButton" class="nav-button" type="button">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6 3h9l3 3v15H6V3Z" />
-              <path d="M9 12h6M9 16h4" />
-            </svg>
-            <span>미션</span>
-          </button>
-        </nav>
       </section>
 
       <section id="missionsSheet" class="sheet hidden" aria-label="미션">
